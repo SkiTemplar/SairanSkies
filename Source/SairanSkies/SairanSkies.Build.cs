@@ -15,7 +15,10 @@ public class SairanSkies : ModuleRules
 			"InputCore",
 			"EnhancedInput",
 			"MotionWarping",
-			"Niagara"
+			"Niagara",
+			"AIModule",
+			"GameplayTasks",
+			"NavigationSystem"
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[] {  });
