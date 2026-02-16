@@ -1,0 +1,11 @@
+<Project>
+  <PropertyGroup>
+    <!-- Forzar el uso del SDK de .NET del sistema -->
+    <DOTNET_ROOT>C:\Program Files\dotnet</DOTNET_ROOT>
+    <MSBuildSDKsPath>C:\Program Files\dotnet\sdk\9.0.306\Sdks</MSBuildSDKsPath>
+    <!-- Desactivar la importación automática de workloads que causa el error -->
+    <MSBuildEnableWorkloadResolver>false</MSBuildEnableWorkloadResolver>
+    <!-- Ignorar SDKs de workloads -->
+    <SkipResolvePackageAssets Condition="'$(SkipResolvePackageAssets)' == ''">false</SkipResolvePackageAssets>
+  </PropertyGroup>
+</Project>

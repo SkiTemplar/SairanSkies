@@ -5,6 +5,7 @@
 #include "Kismet/KismetSystemLibrary.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "Components/CapsuleComponent.h"
 #include "DrawDebugHelpers.h"
 
 UTargetingComponent::UTargetingComponent()
@@ -182,9 +183,9 @@ void UTargetingComponent::SnapToTarget(AActor* Target)
 
 	FVector OwnerLocation = OwnerCharacter->GetActorLocation();
 	FVector TargetLocation = Target->GetActorLocation();
-	float Distance = FVector::Dist(OwnerLocation, TargetLocation);
+	float Distance = FVector::Dist2D(OwnerLocation, TargetLocation); // Use 2D distance for horizontal snap
 
-	// Don't snap if too far or too close
+	// Don't snap if too far horizontally or already close enough
 	if (Distance > MaxSnapDistance || Distance < SnapStopDistance)
 	{
 		// Just rotate to face target
@@ -195,11 +196,41 @@ void UTargetingComponent::SnapToTarget(AActor* Target)
 	}
 
 	// Calculate snap end position (stop before reaching target)
-	FVector ToTarget = (TargetLocation - OwnerLocation).GetSafeNormal();
-	FVector SnapDestination = TargetLocation - (ToTarget * SnapStopDistance);
+	FVector ToTarget2D = (TargetLocation - OwnerLocation);
+	ToTarget2D.Z = 0; // Zero out Z for horizontal direction
+	ToTarget2D.Normalize();
+	
+	FVector SnapDestination = TargetLocation - (ToTarget2D * SnapStopDistance);
 
-	// Keep the same Z level
-	SnapDestination.Z = OwnerLocation.Z;
+	// Find the ground at the snap destination to avoid clipping through floor
+	// This is important when snapping from the air
+	FHitResult GroundHit;
+	FVector TraceStart = SnapDestination + FVector(0, 0, 200.0f); // Start above
+	FVector TraceEnd = SnapDestination - FVector(0, 0, 500.0f);   // Trace down
+	
+	FCollisionQueryParams QueryParams;
+	QueryParams.AddIgnoredActor(OwnerCharacter);
+	QueryParams.AddIgnoredActor(Target);
+	
+	bool bHitGround = GetWorld()->LineTraceSingleByChannel(
+		GroundHit,
+		TraceStart,
+		TraceEnd,
+		ECC_Visibility,
+		QueryParams
+	);
+
+	if (bHitGround)
+	{
+		// Place the character on the ground (accounting for capsule half-height)
+		float CapsuleHalfHeight = OwnerCharacter->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+		SnapDestination.Z = GroundHit.ImpactPoint.Z + CapsuleHalfHeight;
+	}
+	else
+	{
+		// Fallback: use target's Z level if no ground found
+		SnapDestination.Z = TargetLocation.Z;
+	}
 
 	// Initialize snap
 	bIsSnapping = true;
@@ -238,7 +269,17 @@ void UTargetingComponent::UpdateSnapMovement(float DeltaTime)
 	{
 		bIsSnapping = false;
 		
-		// Re-enable movement
-		OwnerCharacter->GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+		// Re-enable movement - set to Walking mode which resets grounded state
+		UCharacterMovementComponent* MovementComp = OwnerCharacter->GetCharacterMovement();
+		if (MovementComp)
+		{
+			MovementComp->SetMovementMode(MOVE_Walking);
+			
+			// Ensure velocity is zeroed to avoid sliding
+			MovementComp->Velocity = FVector::ZeroVector;
+		}
+		
+		// Reset jump count so player can jump again after landing from snap
+		OwnerCharacter->CurrentJumpCount = 0;
 	}
 }

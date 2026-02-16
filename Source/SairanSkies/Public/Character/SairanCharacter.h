@@ -14,6 +14,8 @@ class UInputAction;
 class UCombatComponent;
 class UTargetingComponent;
 class AWeaponBase;
+class UStaticMeshComponent;
+class USceneComponent;
 
 UENUM(BlueprintType)
 enum class ECharacterState : uint8
@@ -56,6 +58,23 @@ public:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
 	UTargetingComponent* TargetingComponent;
+
+	/** Visual mesh for the character (capsule placeholder) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Visual")
+	UStaticMeshComponent* VisualMesh;
+
+	// ========== WEAPON ATTACH POINTS ==========
+	/** Attachment point for weapon when held in hand */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Weapon|AttachPoints")
+	USceneComponent* WeaponHandAttachPoint;
+
+	/** Attachment point for weapon when sheathed on back */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Weapon|AttachPoints")
+	USceneComponent* WeaponBackAttachPoint;
+
+	/** Attachment point for weapon when in blocking stance */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Weapon|AttachPoints")
+	USceneComponent* WeaponBlockAttachPoint;
 
 	// ========== INPUT ACTIONS ==========
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
@@ -106,6 +125,14 @@ public:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Movement")
 	int32 MaxJumps = 2;
+
+	/** Gravity scale when falling (higher = faster fall, more responsive) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Movement")
+	float FallingGravityScale = 2.5f;
+
+	/** Gravity scale during normal gameplay */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Movement")
+	float NormalGravityScale = 1.5f;
 
 	// ========== CAMERA SETTINGS ==========
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Camera")
@@ -183,13 +210,16 @@ protected:
 	void LightAttack(const FInputActionValue& Value);
 	void HeavyAttackStart(const FInputActionValue& Value);
 	void HeavyAttackRelease(const FInputActionValue& Value);
-	void Parry(const FInputActionValue& Value);
+	void ParryStart(const FInputActionValue& Value);
+	void ParryRelease(const FInputActionValue& Value);
 	void SwitchWeapon(const FInputActionValue& Value);
 
 private:
 	void UpdateCameraDistance(float DeltaTime);
+	void UpdateGravityScale();
 	void SpawnWeapon();
 	void ResetDash();
+	void SetupVisualMesh();
 
 	FVector2D MovementInput;
 	float TargetCameraDistance;

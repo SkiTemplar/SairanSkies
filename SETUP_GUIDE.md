@@ -3,11 +3,22 @@
 ## Resumen del Sistema Implementado
 
 Se ha implementado un sistema de combate estilo Batman Arkham con las siguientes características:
-- **Movimiento**: Caminar, correr, doble salto, dash direccional (8 direcciones)
+- **Movimiento**: Caminar, correr, doble salto con gravedad mejorada, dash direccional (8 direcciones)
 - **Cámara**: Tercera persona desde el hombro, se aleja al correr
-- **Combate**: Ataque ligero, ataque fuerte, ataque cargado (mantener 2s), parry estilo Sekiro
-- **Targeting**: Auto-targeting de enemigos en radio de 10m con snap instantáneo al atacar
-- **Arma**: Espadón que se puede enfundar/desenfundar (estilo God of War)
+- **Combate**: Ataque ligero, ataque fuerte, ataque cargado (mantener 2s), parry/block estilo Sekiro
+- **Targeting**: Auto-targeting de enemigos en radio de 10m con snap instantáneo al atacar (corregido para ataques aéreos)
+- **Arma**: Espadón que se puede enfundar/desenfundar (diagonal en espalda estilo God of War)
+- **Feedback de impacto**: Hitstop, camera shake, knockback, sistema de partículas y sonidos
+
+### Cambios Recientes:
+- ✅ **Visual del personaje**: Ahora usa un mesh de cápsula (cilindro) en vez de cubo
+- ✅ **Posición del arma**: Mejorada para verse correctamente en mano (empuñadura hacia abajo)
+- ✅ **Arma en espalda**: Ahora se guarda en diagonal estilo God of War
+- ✅ **Gravedad del doble salto**: Aumentada para caída más rápida y responsiva
+- ✅ **Debug de hit detection**: Solo dibuja un círculo, no múltiples cada frame
+- ✅ **Feedback de impacto**: Knockback, hitstop, camera shake, slots para partículas/sonido
+- ✅ **Bug de ataque aéreo**: Arreglado - ahora el personaje baja al nivel del enemigo
+- ✅ **Posición de bloqueo**: Al sostener parry, el arma se pone en posición defensiva estilo Sekiro
 
 ---
 
@@ -167,7 +178,7 @@ El enemigo ya tiene la etiqueta "Enemy" configurada automáticamente, que es nec
 - **Ctrl**: Dash (en la dirección del movimiento)
 - **Click Izq**: Ataque ligero (combos de hasta 4 hits)
 - **Click Der**: Ataque fuerte (tap) / Ataque cargado (mantener 2s)
-- **Q**: Parry
+- **Q (mantener)**: Parry/Block (posición defensiva mientras se mantiene, parry en el instante de presionar)
 - **Tab**: Enfundar/Desenfundar arma
 
 ### Controles Gamepad:
@@ -178,7 +189,7 @@ El enemigo ya tiene la etiqueta "Enemy" configurada automáticamente, que es nec
 - **A/X**: Dash
 - **R1/RB**: Ataque ligero
 - **R2/RT**: Ataque fuerte/cargado
-- **L1/LB**: Parry
+- **L1/LB (mantener)**: Parry/Block (posición defensiva mientras se mantiene)
 - **Y/Triangle**: Enfundar/Desenfundar
 
 ---
@@ -237,6 +248,18 @@ El enemigo ya tiene la etiqueta "Enemy" configurada automáticamente, que es nec
 - Targeting Radius: 1000 (10 metros)
 - Max Snap Distance: 800
 - Snap Duration: 0.15s
+
+### Hit Feedback (nuevo):
+- Hitstop Duration: 0.05s (breve pausa al impactar)
+- Camera Shake Intensity: 1.0
+- Knockback Force: 500
+- Charged Knockback Force: 1000
+- Hit Particle System: (asignar en Blueprint)
+- Hit Sound: (asignar en Blueprint)
+
+### Gravedad (nuevo):
+- Normal Gravity Scale: 1.5
+- Falling Gravity Scale: 2.5 (para caídas más rápidas)
 
 ---
 

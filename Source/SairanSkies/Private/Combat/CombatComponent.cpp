@@ -6,10 +6,15 @@
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
 #include "Kismet/KismetSystemLibrary.h"
+#include "Kismet/GameplayStatics.h"
 #include "Engine/World.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Weapons/WeaponBase.h"
 #include "Engine/DamageEvents.h"
+#include "Camera/CameraShakeBase.h"
+#include "NiagaraFunctionLibrary.h"
+#include "NiagaraSystem.h"
+#include "Sound/SoundBase.h"
 
 UCombatComponent::UCombatComponent()
 {
@@ -272,6 +277,7 @@ void UCombatComponent::EnableHitDetection()
 {
 	bHitDetectionEnabled = true;
 	HitActorsThisAttack.Empty();
+	bHitLandedThisAttack = false;
 }
 
 void UCombatComponent::DisableHitDetection()
@@ -296,6 +302,9 @@ void UCombatComponent::PerformHitDetection()
 		ActorsToIgnore.Add(Cast<AActor>(OwnerCharacter->EquippedWeapon));
 	}
 
+	// Only draw debug once per attack, not every frame
+	EDrawDebugTrace::Type DebugType = bShowHitDebug && !bHitLandedThisAttack ? EDrawDebugTrace::ForOneFrame : EDrawDebugTrace::None;
+
 	bool bHit = UKismetSystemLibrary::SphereTraceMulti(
 		GetWorld(),
 		TraceStart,
@@ -304,7 +313,7 @@ void UCombatComponent::PerformHitDetection()
 		UEngineTypes::ConvertToTraceType(ECC_Pawn),
 		false,
 		ActorsToIgnore,
-		EDrawDebugTrace::ForDuration,
+		DebugType,
 		HitResults,
 		true,
 		FLinearColor::Red,
@@ -325,9 +334,12 @@ void UCombatComponent::PerformHitDetection()
 				// Mark as hit so we don't hit same actor twice per attack
 				HitActorsThisAttack.Add(HitActor);
 
+				// Calculate hit location (where the weapon would impact)
+				FVector HitLocation = Hit.ImpactPoint.IsNearlyZero() ? FVector(HitActor->GetActorLocation()) : FVector(Hit.ImpactPoint);
+
 				// Apply damage
 				float Damage = GetDamageForAttackType(CurrentAttackType);
-				ApplyDamageToTarget(HitActor, Damage);
+				ApplyDamageToTarget(HitActor, Damage, HitLocation);
 			}
 		}
 	}
@@ -348,7 +360,7 @@ float UCombatComponent::GetDamageForAttackType(EAttackType AttackType) const
 	}
 }
 
-void UCombatComponent::ApplyDamageToTarget(AActor* Target, float Damage)
+void UCombatComponent::ApplyDamageToTarget(AActor* Target, float Damage, const FVector& HitLocation)
 {
 	if (!Target || !OwnerCharacter) return;
 
@@ -356,6 +368,159 @@ void UCombatComponent::ApplyDamageToTarget(AActor* Target, float Damage)
 	FDamageEvent DamageEvent;
 	Target->TakeDamage(Damage, DamageEvent, OwnerCharacter->GetController(), OwnerCharacter);
 
+	// Apply hit feedback effects
+	ApplyHitFeedback(Target, HitLocation, Damage);
+
 	// Log for debugging
 	UE_LOG(LogTemp, Log, TEXT("Applied %.1f damage to %s"), Damage, *Target->GetName());
 }
+
+void UCombatComponent::ApplyHitFeedback(AActor* HitActor, const FVector& HitLocation, float Damage)
+{
+	if (!OwnerCharacter) return;
+
+	bHitLandedThisAttack = true;
+
+	// 1. Apply knockback to enemy
+	float KnockbackToApply = (CurrentAttackType == EAttackType::Charged) ? ChargedKnockbackForce : KnockbackForce;
+	ApplyKnockback(HitActor, KnockbackToApply);
+
+	// 2. Trigger hitstop (brief game pause for impact feel)
+	TriggerHitstop();
+
+	// 3. Trigger camera shake
+	TriggerCameraShake();
+
+	// 4. Spawn hit particles (placeholder - assign NiagaraSystem in Blueprint)
+	if (HitParticleSystem)
+	{
+		UNiagaraFunctionLibrary::SpawnSystemAtLocation(
+			GetWorld(),
+			HitParticleSystem,
+			HitLocation,
+			(OwnerCharacter->GetActorLocation() - HitLocation).Rotation()
+		);
+	}
+
+	// 5. Play hit sound (placeholder - assign sound in Blueprint)
+	if (HitSound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(GetWorld(), HitSound, HitLocation);
+	}
+
+	// 6. Broadcast event for Blueprint effects
+	OnHitLanded.Broadcast(HitActor, HitLocation, Damage);
+}
+
+void UCombatComponent::ApplyKnockback(AActor* Target, float Force)
+{
+	if (!Target || !OwnerCharacter) return;
+
+	// Calculate knockback direction (away from player)
+	FVector KnockbackDirection = (Target->GetActorLocation() - OwnerCharacter->GetActorLocation()).GetSafeNormal();
+	KnockbackDirection.Z = 0.1f; // Slight upward component
+	KnockbackDirection.Normalize();
+
+	// Apply impulse if target has movement component
+	if (ACharacter* TargetCharacter = Cast<ACharacter>(Target))
+	{
+		if (UCharacterMovementComponent* MovementComp = TargetCharacter->GetCharacterMovement())
+		{
+			// Brief stagger - push the character back
+			TargetCharacter->LaunchCharacter(KnockbackDirection * Force, true, false);
+		}
+	}
+	else
+	{
+		// For non-character actors with physics
+		if (UPrimitiveComponent* PrimComp = Cast<UPrimitiveComponent>(Target->GetRootComponent()))
+		{
+			if (PrimComp->IsSimulatingPhysics())
+			{
+				PrimComp->AddImpulse(KnockbackDirection * Force, NAME_None, true);
+			}
+		}
+	}
+}
+
+void UCombatComponent::TriggerHitstop()
+{
+	if (HitstopDuration <= 0.0f) return;
+
+	// Pause the game briefly for impact feel
+	UGameplayStatics::SetGlobalTimeDilation(GetWorld(), 0.01f);
+
+	// Resume after hitstop duration
+	GetWorld()->GetTimerManager().SetTimer(
+		HitstopTimer,
+		this,
+		&UCombatComponent::ResumeFromHitstop,
+		HitstopDuration * 0.01f, // Timer uses dilated time
+		false
+	);
+}
+
+void UCombatComponent::ResumeFromHitstop()
+{
+	UGameplayStatics::SetGlobalTimeDilation(GetWorld(), 1.0f);
+}
+
+void UCombatComponent::TriggerCameraShake()
+{
+	if (!OwnerCharacter || CameraShakeIntensity <= 0.0f) return;
+
+	APlayerController* PC = Cast<APlayerController>(OwnerCharacter->GetController());
+	if (!PC) return;
+
+	if (HitCameraShake)
+	{
+		// Use custom camera shake if assigned
+		PC->ClientStartCameraShake(HitCameraShake, CameraShakeIntensity);
+	}
+	else
+	{
+		// Use a simple procedural shake as fallback
+		// This requires a default camera shake BP to be assigned in the component
+		// For now, we'll just log that no shake is assigned
+		UE_LOG(LogTemp, Warning, TEXT("No HitCameraShake assigned to CombatComponent. Assign one in Blueprint for camera shake effect."));
+	}
+}
+
+// ========== BLOCK/PARRY HOLD FUNCTIONS ==========
+
+void UCombatComponent::StartBlock()
+{
+	if (!OwnerCharacter || bIsAttacking) return;
+
+	bIsHoldingBlock = true;
+
+	// Put weapon in blocking stance
+	if (OwnerCharacter->EquippedWeapon && OwnerCharacter->bIsWeaponDrawn)
+	{
+		OwnerCharacter->EquippedWeapon->SetBlockingStance(true);
+	}
+
+	// Trigger parry if within window
+	if (bCanParry)
+	{
+		PerformParry();
+	}
+}
+
+void UCombatComponent::ReleaseBlock()
+{
+	bIsHoldingBlock = false;
+
+	// Return weapon to normal stance
+	if (OwnerCharacter && OwnerCharacter->EquippedWeapon)
+	{
+		OwnerCharacter->EquippedWeapon->SetBlockingStance(false);
+	}
+
+	// Also end parry state if still in it
+	if (bIsInParryWindow && OwnerCharacter && OwnerCharacter->CurrentState == ECharacterState::Parrying)
+	{
+		OwnerCharacter->SetCharacterState(ECharacterState::Idle);
+	}
+}
+

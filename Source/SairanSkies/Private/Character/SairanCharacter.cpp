@@ -7,10 +7,14 @@
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/StaticMeshComponent.h"
+#include "Components/SceneComponent.h"
 #include "Combat/CombatComponent.h"
 #include "Combat/TargetingComponent.h"
 #include "Weapons/WeaponBase.h"
 #include "Kismet/KismetMathLibrary.h"
+#include "Engine/StaticMesh.h"
+#include "Materials/MaterialInstanceDynamic.h"
 
 ASairanCharacter::ASairanCharacter()
 {
@@ -32,6 +36,35 @@ ASairanCharacter::ASairanCharacter()
 	GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
 	GetCharacterMovement()->MinAnalogWalkSpeed = 20.f;
 	GetCharacterMovement()->BrakingDecelerationWalking = 2000.f;
+	GetCharacterMovement()->GravityScale = NormalGravityScale;
+
+	// Visual mesh (capsule placeholder for character body)
+	VisualMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("VisualMesh"));
+	VisualMesh->SetupAttachment(RootComponent);
+	VisualMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	VisualMesh->SetRelativeLocation(FVector(0, 0, 0));
+
+	// ========== WEAPON ATTACH POINTS ==========
+	// These are empty scene components that can be repositioned in the editor
+	// to define exactly where the weapon should be in each state
+	
+	// Hand attachment point - weapon held in right hand
+	WeaponHandAttachPoint = CreateDefaultSubobject<USceneComponent>(TEXT("WeaponHandAttachPoint"));
+	WeaponHandAttachPoint->SetupAttachment(VisualMesh);
+	WeaponHandAttachPoint->SetRelativeLocation(FVector(30.0f, 25.0f, 40.0f)); // Right side, mid height
+	WeaponHandAttachPoint->SetRelativeRotation(FRotator(0.0f, 0.0f, -90.0f)); // Blade pointing up
+	
+	// Back attachment point - weapon sheathed on back (diagonal like God of War)
+	WeaponBackAttachPoint = CreateDefaultSubobject<USceneComponent>(TEXT("WeaponBackAttachPoint"));
+	WeaponBackAttachPoint->SetupAttachment(VisualMesh);
+	WeaponBackAttachPoint->SetRelativeLocation(FVector(-20.0f, 10.0f, 60.0f)); // Behind, slightly offset
+	WeaponBackAttachPoint->SetRelativeRotation(FRotator(-35.0f, 45.0f, 0.0f)); // Diagonal on back
+	
+	// Block attachment point - weapon in defensive stance
+	WeaponBlockAttachPoint = CreateDefaultSubobject<USceneComponent>(TEXT("WeaponBlockAttachPoint"));
+	WeaponBlockAttachPoint->SetupAttachment(VisualMesh);
+	WeaponBlockAttachPoint->SetRelativeLocation(FVector(40.0f, 0.0f, 70.0f)); // In front, higher up
+	WeaponBlockAttachPoint->SetRelativeRotation(FRotator(0.0f, 45.0f, -45.0f)); // Angled for blocking
 
 	// Camera boom (third person, over shoulder but a bit farther)
 	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
@@ -72,6 +105,9 @@ void ASairanCharacter::BeginPlay()
 		}
 	}
 
+	// Setup visual mesh (capsule placeholder)
+	SetupVisualMesh();
+
 	// Spawn weapon
 	SpawnWeapon();
 
@@ -84,6 +120,7 @@ void ASairanCharacter::Tick(float DeltaTime)
 	Super::Tick(DeltaTime);
 
 	UpdateCameraDistance(DeltaTime);
+	UpdateGravityScale();
 
 	// Update state based on movement
 	if (CurrentState != ECharacterState::Attacking && CurrentState != ECharacterState::Dashing && CurrentState != ECharacterState::Parrying)
@@ -134,8 +171,9 @@ void ASairanCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 		EnhancedInputComponent->BindAction(HeavyAttackAction, ETriggerEvent::Started, this, &ASairanCharacter::HeavyAttackStart);
 		EnhancedInputComponent->BindAction(HeavyAttackAction, ETriggerEvent::Completed, this, &ASairanCharacter::HeavyAttackRelease);
 		
-		// Parry
-		EnhancedInputComponent->BindAction(ParryAction, ETriggerEvent::Started, this, &ASairanCharacter::Parry);
+		// Parry (hold support for blocking stance)
+		EnhancedInputComponent->BindAction(ParryAction, ETriggerEvent::Started, this, &ASairanCharacter::ParryStart);
+		EnhancedInputComponent->BindAction(ParryAction, ETriggerEvent::Completed, this, &ASairanCharacter::ParryRelease);
 		
 		// Switch Weapon
 		EnhancedInputComponent->BindAction(SwitchWeaponAction, ETriggerEvent::Started, this, &ASairanCharacter::SwitchWeapon);
@@ -245,11 +283,19 @@ void ASairanCharacter::HeavyAttackRelease(const FInputActionValue& Value)
 	}
 }
 
-void ASairanCharacter::Parry(const FInputActionValue& Value)
+void ASairanCharacter::ParryStart(const FInputActionValue& Value)
 {
 	if (CombatComponent && CanPerformAction() && bIsWeaponDrawn)
 	{
-		CombatComponent->PerformParry();
+		CombatComponent->StartBlock();
+	}
+}
+
+void ASairanCharacter::ParryRelease(const FInputActionValue& Value)
+{
+	if (CombatComponent && bIsWeaponDrawn)
+	{
+		CombatComponent->ReleaseBlock();
 	}
 }
 
@@ -413,3 +459,51 @@ void ASairanCharacter::UpdateCameraDistance(float DeltaTime)
 		CameraBoom->TargetArmLength = NewDistance;
 	}
 }
+
+void ASairanCharacter::UpdateGravityScale()
+{
+	if (!GetCharacterMovement()) return;
+
+	// Apply higher gravity when falling for snappier double jump feel
+	if (GetCharacterMovement()->IsFalling() && GetVelocity().Z < 0)
+	{
+		// Falling down - apply higher gravity
+		GetCharacterMovement()->GravityScale = FallingGravityScale;
+	}
+	else
+	{
+		// Rising or grounded - normal gravity
+		GetCharacterMovement()->GravityScale = NormalGravityScale;
+	}
+}
+
+void ASairanCharacter::SetupVisualMesh()
+{
+	if (!VisualMesh) return;
+
+	// Load capsule mesh (using cylinder as placeholder since it's closer to a capsule)
+	UStaticMesh* CapsuleMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
+	if (CapsuleMesh)
+	{
+		VisualMesh->SetStaticMesh(CapsuleMesh);
+		
+		// Scale to match character capsule size (radius 42, half-height 96)
+		// Cylinder default is 100x100x100, we want it to be approx 84 diameter, 192 tall
+		float Diameter = 84.0f;
+		float Height = 192.0f;
+		FVector Scale = FVector(Diameter / 100.0f, Diameter / 100.0f, Height / 100.0f);
+		VisualMesh->SetRelativeScale3D(Scale);
+		
+		// Position it centered on the capsule
+		VisualMesh->SetRelativeLocation(FVector(0, 0, 0));
+
+		// Create a simple colored material
+		UMaterialInstanceDynamic* DynMaterial = VisualMesh->CreateAndSetMaterialInstanceDynamic(0);
+		if (DynMaterial)
+		{
+			// Light blue color for the character
+			DynMaterial->SetVectorParameterValue(FName("BaseColor"), FLinearColor(0.3f, 0.5f, 0.8f, 1.0f));
+		}
+	}
+}
+

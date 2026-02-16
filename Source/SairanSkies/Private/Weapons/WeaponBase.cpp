@@ -89,42 +89,54 @@ void AWeaponBase::AttachToHand()
 {
 	if (!OwnerCharacter) return;
 
-	USkeletalMeshComponent* CharacterMesh = OwnerCharacter->GetMesh();
-	if (!CharacterMesh) return;
+	// Use the attach point component from the character
+	USceneComponent* AttachPoint = OwnerCharacter->WeaponHandAttachPoint;
+	if (!AttachPoint)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("WeaponHandAttachPoint not found on character!"));
+		return;
+	}
 
 	// Detach first
 	DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
 
-	// Attach to hand socket
+	// Attach to the hand attach point - weapon will inherit position and rotation from the component
 	FAttachmentTransformRules AttachRules(EAttachmentRule::SnapToTarget, EAttachmentRule::SnapToTarget, EAttachmentRule::KeepWorld, true);
-	AttachToComponent(CharacterMesh, AttachRules, HandSocketName);
+	AttachToComponent(AttachPoint, AttachRules);
 
-	// Apply offsets
-	SetActorRelativeLocation(HandAttachOffset);
-	SetActorRelativeRotation(HandAttachRotation);
+	// Reset relative transform - the attach point already has the correct position/rotation
+	SetActorRelativeLocation(FVector::ZeroVector);
+	SetActorRelativeRotation(FRotator::ZeroRotator);
 
 	CurrentState = EWeaponState::Drawn;
+	bInBlockingStance = false;
 }
 
 void AWeaponBase::AttachToBack()
 {
 	if (!OwnerCharacter) return;
 
-	USkeletalMeshComponent* CharacterMesh = OwnerCharacter->GetMesh();
-	if (!CharacterMesh) return;
+	// Use the attach point component from the character
+	USceneComponent* AttachPoint = OwnerCharacter->WeaponBackAttachPoint;
+	if (!AttachPoint)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("WeaponBackAttachPoint not found on character!"));
+		return;
+	}
 
 	// Detach first
 	DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
 
-	// Attach to back socket
+	// Attach to the back attach point
 	FAttachmentTransformRules AttachRules(EAttachmentRule::SnapToTarget, EAttachmentRule::SnapToTarget, EAttachmentRule::KeepWorld, true);
-	AttachToComponent(CharacterMesh, AttachRules, BackSocketName);
+	AttachToComponent(AttachPoint, AttachRules);
 
-	// Apply offsets for back position
-	SetActorRelativeLocation(BackAttachOffset);
-	SetActorRelativeRotation(BackAttachRotation);
+	// Reset relative transform - the attach point already has the correct position/rotation
+	SetActorRelativeLocation(FVector::ZeroVector);
+	SetActorRelativeRotation(FRotator::ZeroRotator);
 
 	CurrentState = EWeaponState::Sheathed;
+	bInBlockingStance = false;
 }
 
 void AWeaponBase::EnableHitCollision()
@@ -145,6 +157,51 @@ void AWeaponBase::DisableHitCollision()
 void AWeaponBase::SetWeaponState(EWeaponState NewState)
 {
 	CurrentState = NewState;
+}
+
+void AWeaponBase::AttachToBlockPosition()
+{
+	if (!OwnerCharacter) return;
+
+	// Use the attach point component from the character
+	USceneComponent* AttachPoint = OwnerCharacter->WeaponBlockAttachPoint;
+	if (!AttachPoint)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("WeaponBlockAttachPoint not found on character!"));
+		return;
+	}
+
+	// Detach first
+	DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+
+	// Attach to the block attach point
+	FAttachmentTransformRules AttachRules(EAttachmentRule::SnapToTarget, EAttachmentRule::SnapToTarget, EAttachmentRule::KeepWorld, true);
+	AttachToComponent(AttachPoint, AttachRules);
+
+	// Reset relative transform - the attach point already has the correct position/rotation
+	SetActorRelativeLocation(FVector::ZeroVector);
+	SetActorRelativeRotation(FRotator::ZeroRotator);
+
+	// Keep drawn state but mark as blocking
+	bInBlockingStance = true;
+}
+
+void AWeaponBase::SetBlockingStance(bool bIsBlocking)
+{
+	if (!OwnerCharacter || CurrentState == EWeaponState::Sheathed) return;
+
+	bInBlockingStance = bIsBlocking;
+
+	if (bIsBlocking)
+	{
+		// Move to blocking position using the attach point
+		AttachToBlockPosition();
+	}
+	else
+	{
+		// Return to hand position
+		AttachToHand();
+	}
 }
 
 void AWeaponBase::OnHitCollisionOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor,

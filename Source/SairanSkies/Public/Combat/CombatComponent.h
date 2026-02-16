@@ -8,6 +8,8 @@
 
 class ASairanCharacter;
 class UAnimMontage;
+class UCameraShakeBase;
+class UNiagaraSystem;
 
 UENUM(BlueprintType)
 enum class EAttackType : uint8
@@ -21,6 +23,7 @@ enum class EAttackType : uint8
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnAttackPerformed, EAttackType, AttackType);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnParrySuccess);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnParryWindow);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnHitLanded, AActor*, HitActor, FVector, HitLocation, float, Damage);
 
 UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent))
 class SAIRANSKIES_API UCombatComponent : public UActorComponent
@@ -48,6 +51,14 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Combat")
 	void PerformParry();
+
+	/** Start holding block/parry stance */
+	UFUNCTION(BlueprintCallable, Category = "Combat")
+	void StartBlock();
+
+	/** Release block/parry stance */
+	UFUNCTION(BlueprintCallable, Category = "Combat")
+	void ReleaseBlock();
 
 	UFUNCTION(BlueprintCallable, Category = "Combat")
 	void ExecuteAttack(EAttackType AttackType);
@@ -122,6 +133,40 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|HitDetection")
 	float HitDetectionForwardOffset = 100.0f;
 
+	// ========== HIT FEEDBACK ==========
+	
+	/** Duration of hitstop (game pause) on hit */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|HitFeedback")
+	float HitstopDuration = 0.05f;
+
+	/** Strength of camera shake on hit (0 = none) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|HitFeedback")
+	float CameraShakeIntensity = 1.0f;
+
+	/** Camera shake class to play on hit */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|HitFeedback")
+	TSubclassOf<UCameraShakeBase> HitCameraShake;
+
+	/** Force applied to enemy on hit (knockback) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|HitFeedback")
+	float KnockbackForce = 500.0f;
+
+	/** Knockback force for charged attacks */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|HitFeedback")
+	float ChargedKnockbackForce = 1000.0f;
+
+	/** Niagara system for hit particles (assign in Blueprint) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|HitFeedback")
+	UNiagaraSystem* HitParticleSystem;
+
+	/** Sound to play on hit (assign in Blueprint) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|HitFeedback")
+	USoundBase* HitSound;
+
+	/** Enable debug visualization for hit detection (should be false in final build) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|Debug")
+	bool bShowHitDebug = false;
+
 	// ========== EVENTS ==========
 	UPROPERTY(BlueprintAssignable, Category = "Combat|Events")
 	FOnAttackPerformed OnAttackPerformed;
@@ -131,6 +176,10 @@ public:
 
 	UPROPERTY(BlueprintAssignable, Category = "Combat|Events")
 	FOnParryWindow OnParryWindow;
+
+	/** Called when a hit lands on an enemy - use for VFX/SFX */
+	UPROPERTY(BlueprintAssignable, Category = "Combat|Events")
+	FOnHitLanded OnHitLanded;
 
 	// ========== STATE ==========
 	UPROPERTY(BlueprintReadOnly, Category = "Combat")
@@ -155,6 +204,9 @@ public:
 	bool bCanParry = true;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Combat")
+	bool bIsHoldingBlock = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Combat")
 	bool bHitDetectionEnabled = false;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Combat")
@@ -173,12 +225,21 @@ private:
 	void ResetParryCooldown();
 	void ProcessBufferedInput();
 	float GetDamageForAttackType(EAttackType AttackType) const;
-	void ApplyDamageToTarget(AActor* Target, float Damage);
+	void ApplyDamageToTarget(AActor* Target, float Damage, const FVector& HitLocation);
+	
+	/** Apply all hit feedback effects */
+	void ApplyHitFeedback(AActor* HitActor, const FVector& HitLocation, float Damage);
+	void ApplyKnockback(AActor* Target, float Force);
+	void TriggerHitstop();
+	void TriggerCameraShake();
+	void ResumeFromHitstop();
 
 	FTimerHandle ComboResetTimer;
 	FTimerHandle ParryWindowTimer;
 	FTimerHandle ParryCooldownTimer;
 	FTimerHandle AttackEndTimer;
+	FTimerHandle HitstopTimer;
 
 	TSet<AActor*> HitActorsThisAttack;
+	bool bHitLandedThisAttack = false;
 };
