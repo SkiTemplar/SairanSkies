@@ -2,6 +2,7 @@
 
 #include "Weapons/WeaponBase.h"
 #include "Character/SairanCharacter.h"
+#include "Combat/CombatComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/BoxComponent.h"
 #include "Engine/StaticMesh.h"
@@ -68,9 +69,17 @@ void AWeaponBase::SetupPlaceholderMesh()
 		}
 	}
 
-	// Setup hit collision to match weapon size
-	HitCollision->SetBoxExtent(FVector(WeaponSize.X / 2.0f, WeaponSize.Y / 2.0f, WeaponSize.Z / 2.0f));
-	HitCollision->SetRelativeLocation(FVector(0, 0, WeaponSize.Z / 2.0f));
+	// Setup hit collision to match weapon blade size (not the whole weapon including handle)
+	// Make it slightly smaller than the visual mesh to avoid floor collisions
+	// The blade is roughly 2/3 of the total length, positioned at the top
+	float BladeLength = WeaponSize.Z * 0.6f; // 60% of total length is the blade
+	FVector HitBoxExtent = FVector(WeaponSize.X / 2.0f, WeaponSize.Y / 2.0f, BladeLength / 2.0f);
+	HitCollision->SetBoxExtent(HitBoxExtent);
+	
+	// Position the hit box at the blade area (upper part of the weapon)
+	// The blade starts around 40% up from the handle
+	float BladeOffsetZ = WeaponSize.Z * 0.7f; // Position at 70% height (middle of the blade)
+	HitCollision->SetRelativeLocation(FVector(0, 0, BladeOffsetZ));
 }
 
 void AWeaponBase::EquipToCharacter(ASairanCharacter* NewOwner)
@@ -207,11 +216,16 @@ void AWeaponBase::SetBlockingStance(bool bIsBlocking)
 void AWeaponBase::OnHitCollisionOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor,
 	UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
 {
-	// Weapon overlap events can be used for additional hit effects
-	// Main damage is handled by CombatComponent's sphere trace
-	
-	if (OtherActor && OtherActor != OwnerCharacter && OtherActor->ActorHasTag(FName("Enemy")))
+	// Notify CombatComponent about the hit
+	if (!OwnerCharacter || !OtherActor || OtherActor == OwnerCharacter) return;
+
+	// Only process if this is an enemy
+	if (!OtherActor->ActorHasTag(FName("Enemy"))) return;
+
+	// Get combat component and notify it
+	if (OwnerCharacter->CombatComponent)
 	{
-		UE_LOG(LogTemp, Log, TEXT("Weapon overlapped with: %s"), *OtherActor->GetName());
+		FVector HitLocation = SweepResult.ImpactPoint.IsNearlyZero() ? OtherActor->GetActorLocation() : FVector(SweepResult.ImpactPoint);
+		OwnerCharacter->CombatComponent->OnWeaponHitDetected(OtherActor, HitLocation);
 	}
 }

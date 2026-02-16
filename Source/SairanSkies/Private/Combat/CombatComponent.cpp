@@ -40,7 +40,7 @@ void UCombatComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActo
 		CurrentChargeTime = FMath::Min(CurrentChargeTime, ChargeTimeForMaxDamage);
 	}
 
-	// Perform hit detection while enabled
+	// Perform hit detection while attacking
 	if (bHitDetectionEnabled)
 	{
 		PerformHitDetection();
@@ -273,6 +273,25 @@ void UCombatComponent::IncrementCombo()
 
 // ========== HIT DETECTION ==========
 
+void UCombatComponent::OnWeaponHitDetected(AActor* HitActor, const FVector& HitLocation)
+{
+	// Only process hits when hit detection is enabled
+	if (!bHitDetectionEnabled || !OwnerCharacter || !HitActor) return;
+
+	// Don't hit self
+	if (HitActor == OwnerCharacter) return;
+
+	// Don't hit same actor twice in one attack
+	if (HitActorsThisAttack.Contains(HitActor)) return;
+
+	// Mark as hit
+	HitActorsThisAttack.Add(HitActor);
+
+	// Apply damage
+	float Damage = GetDamageForAttackType(CurrentAttackType);
+	ApplyDamageToTarget(HitActor, Damage, HitLocation);
+}
+
 void UCombatComponent::EnableHitDetection()
 {
 	bHitDetectionEnabled = true;
@@ -289,9 +308,12 @@ void UCombatComponent::PerformHitDetection()
 {
 	if (!OwnerCharacter) return;
 
-	// Calculate hit detection sphere position (in front of character)
-	FVector TraceStart = OwnerCharacter->GetActorLocation() + 
-						 OwnerCharacter->GetActorForwardVector() * HitDetectionForwardOffset;
+	// Calculate hit detection position - in front of character, elevated to avoid ground
+	FVector CharacterLocation = OwnerCharacter->GetActorLocation();
+	FVector ForwardOffset = OwnerCharacter->GetActorForwardVector() * HitDetectionForwardOffset;
+	FVector HeightOffset = FVector(0, 0, HitDetectionHeightOffset);
+	
+	FVector TraceStart = CharacterLocation + ForwardOffset + HeightOffset;
 
 	// Sphere trace for enemies
 	TArray<FHitResult> HitResults;
@@ -302,13 +324,13 @@ void UCombatComponent::PerformHitDetection()
 		ActorsToIgnore.Add(Cast<AActor>(OwnerCharacter->EquippedWeapon));
 	}
 
-	// Only draw debug once per attack, not every frame
-	EDrawDebugTrace::Type DebugType = bShowHitDebug && !bHitLandedThisAttack ? EDrawDebugTrace::ForOneFrame : EDrawDebugTrace::None;
+	// Debug visualization
+	EDrawDebugTrace::Type DebugType = bShowHitDebug ? EDrawDebugTrace::ForOneFrame : EDrawDebugTrace::None;
 
 	bool bHit = UKismetSystemLibrary::SphereTraceMulti(
 		GetWorld(),
 		TraceStart,
-		TraceStart, // Same point - we just want sphere overlap
+		TraceStart, // Same point - we just want sphere overlap at this position
 		HitDetectionRadius,
 		UEngineTypes::ConvertToTraceType(ECC_Pawn),
 		false,
@@ -331,11 +353,14 @@ void UCombatComponent::PerformHitDetection()
 				// Don't hit self
 				if (HitActor == OwnerCharacter) continue;
 
+				// Check if actor has Enemy tag
+				if (!HitActor->ActorHasTag(FName("Enemy"))) continue;
+
 				// Mark as hit so we don't hit same actor twice per attack
 				HitActorsThisAttack.Add(HitActor);
 
-				// Calculate hit location (where the weapon would impact)
-				FVector HitLocation = Hit.ImpactPoint.IsNearlyZero() ? FVector(HitActor->GetActorLocation()) : FVector(Hit.ImpactPoint);
+				// Calculate hit location
+				FVector HitLocation = Hit.ImpactPoint.IsNearlyZero() ? HitActor->GetActorLocation() : FVector(Hit.ImpactPoint);
 
 				// Apply damage
 				float Damage = GetDamageForAttackType(CurrentAttackType);
@@ -385,11 +410,11 @@ void UCombatComponent::ApplyHitFeedback(AActor* HitActor, const FVector& HitLoca
 	float KnockbackToApply = (CurrentAttackType == EAttackType::Charged) ? ChargedKnockbackForce : KnockbackForce;
 	ApplyKnockback(HitActor, KnockbackToApply);
 
-	// 2. Trigger hitstop (brief game pause for impact feel)
-	TriggerHitstop();
+	// 2. Trigger hitstop (brief game pause for impact feel) - intensity based on attack type
+	TriggerHitstop(CurrentAttackType);
 
-	// 3. Trigger camera shake
-	TriggerCameraShake();
+	// 3. Trigger camera shake - intensity based on attack type
+	TriggerCameraShake(CurrentAttackType);
 
 	// 4. Spawn hit particles (placeholder - assign NiagaraSystem in Blueprint)
 	if (HitParticleSystem)
@@ -443,19 +468,36 @@ void UCombatComponent::ApplyKnockback(AActor* Target, float Force)
 	}
 }
 
-void UCombatComponent::TriggerHitstop()
+void UCombatComponent::TriggerHitstop(EAttackType AttackType)
 {
 	if (HitstopDuration <= 0.0f) return;
 
+	// Scale duration based on attack type
+	float Duration = HitstopDuration;
+	switch (AttackType)
+	{
+		case EAttackType::Heavy:
+			Duration = HitstopDuration * 2.0f; // Double for heavy attacks
+			break;
+		case EAttackType::Charged:
+			Duration = HitstopDuration * 3.0f; // Triple for charged attacks
+			break;
+		default:
+			Duration = HitstopDuration;
+			break;
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("🎯 HITSTOP TRIGGERED - Type: %d, Duration: %f"), (int)AttackType, Duration);
+
 	// Pause the game briefly for impact feel
-	UGameplayStatics::SetGlobalTimeDilation(GetWorld(), 0.01f);
+	UGameplayStatics::SetGlobalTimeDilation(GetWorld(), 0.1f);
 
 	// Resume after hitstop duration
 	GetWorld()->GetTimerManager().SetTimer(
 		HitstopTimer,
 		this,
 		&UCombatComponent::ResumeFromHitstop,
-		HitstopDuration * 0.01f, // Timer uses dilated time
+		Duration,
 		false
 	);
 }
@@ -463,26 +505,49 @@ void UCombatComponent::TriggerHitstop()
 void UCombatComponent::ResumeFromHitstop()
 {
 	UGameplayStatics::SetGlobalTimeDilation(GetWorld(), 1.0f);
+	UE_LOG(LogTemp, Log, TEXT("HITSTOP ENDED - Game speed resumed"));
 }
 
-void UCombatComponent::TriggerCameraShake()
+void UCombatComponent::TriggerCameraShake(EAttackType AttackType)
 {
-	if (!OwnerCharacter || CameraShakeIntensity <= 0.0f) return;
+	// Scale shake intensity based on attack type
+	float Intensity = CameraShakeIntensity;
+	switch (AttackType)
+	{
+		case EAttackType::Heavy:
+			Intensity = CameraShakeIntensity * 1.5f; // 1.5x for heavy attacks
+			break;
+		case EAttackType::Charged:
+			Intensity = CameraShakeIntensity * 2.5f; // 2.5x for charged attacks
+			break;
+		default:
+			Intensity = CameraShakeIntensity;
+			break;
+	}
+
+	if (!OwnerCharacter || Intensity <= 0.0f)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("CameraShake failed - OwnerCharacter: %s, Intensity: %f"), 
+			OwnerCharacter ? TEXT("Valid") : TEXT("NULL"), Intensity);
+		return;
+	}
 
 	APlayerController* PC = Cast<APlayerController>(OwnerCharacter->GetController());
-	if (!PC) return;
+	if (!PC)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("CameraShake failed - No PlayerController found"));
+		return;
+	}
 
 	if (HitCameraShake)
 	{
 		// Use custom camera shake if assigned
-		PC->ClientStartCameraShake(HitCameraShake, CameraShakeIntensity);
+		PC->ClientStartCameraShake(HitCameraShake, Intensity);
+		UE_LOG(LogTemp, Log, TEXT("📹 CAMERA SHAKE TRIGGERED - Type: %d, Intensity: %f"), (int)AttackType, Intensity);
 	}
 	else
 	{
-		// Use a simple procedural shake as fallback
-		// This requires a default camera shake BP to be assigned in the component
-		// For now, we'll just log that no shake is assigned
-		UE_LOG(LogTemp, Warning, TEXT("No HitCameraShake assigned to CombatComponent. Assign one in Blueprint for camera shake effect."));
+		UE_LOG(LogTemp, Warning, TEXT("❌ NO HitCameraShake assigned! Create a CameraShake Blueprint and assign it to CombatComponent."));
 	}
 }
 

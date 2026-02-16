@@ -14,7 +14,6 @@ class UInputAction;
 class UCombatComponent;
 class UTargetingComponent;
 class AWeaponBase;
-class UStaticMeshComponent;
 class USceneComponent;
 
 UENUM(BlueprintType)
@@ -59,9 +58,6 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
 	UTargetingComponent* TargetingComponent;
 
-	/** Visual mesh for the character (capsule placeholder) */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Visual")
-	UStaticMeshComponent* VisualMesh;
 
 	// ========== WEAPON ATTACH POINTS ==========
 	/** Attachment point for weapon when held in hand */
@@ -219,7 +215,6 @@ private:
 	void UpdateGravityScale();
 	void SpawnWeapon();
 	void ResetDash();
-	void SetupVisualMesh();
 
 	FVector2D MovementInput;
 	float TargetCameraDistance;

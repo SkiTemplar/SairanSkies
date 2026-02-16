@@ -83,10 +83,11 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Combat")
 	void DisableHitDetection();
 
-	UFUNCTION(BlueprintCallable, Category = "Combat")
-	void PerformHitDetection();
 
-	// ========== DAMAGE VALUES ==========
+	/** Called by weapon when its HitCollision detects an overlap */
+	void OnWeaponHitDetected(AActor* HitActor, const FVector& HitLocation);
+
+	// ========== STATE ==========
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|Damage")
 	float LightAttackDamage = 20.0f;
 
@@ -127,11 +128,17 @@ public:
 	UAnimMontage* ParryMontage;
 
 	// ========== HIT DETECTION ==========
+	/** Radius of the hit detection sphere */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|HitDetection")
-	float HitDetectionRadius = 150.0f;
+	float HitDetectionRadius = 80.0f;
 
+	/** How far in front of the character the hit detection sphere is placed */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|HitDetection")
 	float HitDetectionForwardOffset = 100.0f;
+
+	/** Height offset for hit detection (to avoid hitting the ground) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|HitDetection")
+	float HitDetectionHeightOffset = 50.0f;
 
 	// ========== HIT FEEDBACK ==========
 	
@@ -224,14 +231,15 @@ private:
 	void EndParryWindow();
 	void ResetParryCooldown();
 	void ProcessBufferedInput();
+	void PerformHitDetection();
 	float GetDamageForAttackType(EAttackType AttackType) const;
 	void ApplyDamageToTarget(AActor* Target, float Damage, const FVector& HitLocation);
 	
 	/** Apply all hit feedback effects */
 	void ApplyHitFeedback(AActor* HitActor, const FVector& HitLocation, float Damage);
 	void ApplyKnockback(AActor* Target, float Force);
-	void TriggerHitstop();
-	void TriggerCameraShake();
+	void TriggerHitstop(EAttackType AttackType);
+	void TriggerCameraShake(EAttackType AttackType);
 	void ResumeFromHitstop();
 
 	FTimerHandle ComboResetTimer;

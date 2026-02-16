@@ -12,16 +12,13 @@
 #include "Combat/CombatComponent.h"
 #include "Combat/TargetingComponent.h"
 #include "Weapons/WeaponBase.h"
-#include "Kismet/KismetMathLibrary.h"
-#include "Engine/StaticMesh.h"
-#include "Materials/MaterialInstanceDynamic.h"
 
 ASairanCharacter::ASairanCharacter()
 {
 	PrimaryActorTick.bCanEverTick = true;
 
 	// Capsule setup
-	GetCapsuleComponent()->InitCapsuleSize(42.f, 96.0f);
+	GetCapsuleComponent()->InitCapsuleSize(42.f, 75.0f);
 
 	// Don't rotate character to camera
 	bUseControllerRotationPitch = false;
@@ -38,11 +35,6 @@ ASairanCharacter::ASairanCharacter()
 	GetCharacterMovement()->BrakingDecelerationWalking = 2000.f;
 	GetCharacterMovement()->GravityScale = NormalGravityScale;
 
-	// Visual mesh (capsule placeholder for character body)
-	VisualMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("VisualMesh"));
-	VisualMesh->SetupAttachment(RootComponent);
-	VisualMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	VisualMesh->SetRelativeLocation(FVector(0, 0, 0));
 
 	// ========== WEAPON ATTACH POINTS ==========
 	// These are empty scene components that can be repositioned in the editor
@@ -50,19 +42,19 @@ ASairanCharacter::ASairanCharacter()
 	
 	// Hand attachment point - weapon held in right hand
 	WeaponHandAttachPoint = CreateDefaultSubobject<USceneComponent>(TEXT("WeaponHandAttachPoint"));
-	WeaponHandAttachPoint->SetupAttachment(VisualMesh);
+	WeaponHandAttachPoint->SetupAttachment(RootComponent);
 	WeaponHandAttachPoint->SetRelativeLocation(FVector(30.0f, 25.0f, 40.0f)); // Right side, mid height
 	WeaponHandAttachPoint->SetRelativeRotation(FRotator(0.0f, 0.0f, -90.0f)); // Blade pointing up
 	
 	// Back attachment point - weapon sheathed on back (diagonal like God of War)
 	WeaponBackAttachPoint = CreateDefaultSubobject<USceneComponent>(TEXT("WeaponBackAttachPoint"));
-	WeaponBackAttachPoint->SetupAttachment(VisualMesh);
+	WeaponBackAttachPoint->SetupAttachment(RootComponent);
 	WeaponBackAttachPoint->SetRelativeLocation(FVector(-20.0f, 10.0f, 60.0f)); // Behind, slightly offset
 	WeaponBackAttachPoint->SetRelativeRotation(FRotator(-35.0f, 45.0f, 0.0f)); // Diagonal on back
 	
 	// Block attachment point - weapon in defensive stance
 	WeaponBlockAttachPoint = CreateDefaultSubobject<USceneComponent>(TEXT("WeaponBlockAttachPoint"));
-	WeaponBlockAttachPoint->SetupAttachment(VisualMesh);
+	WeaponBlockAttachPoint->SetupAttachment(RootComponent);
 	WeaponBlockAttachPoint->SetRelativeLocation(FVector(40.0f, 0.0f, 70.0f)); // In front, higher up
 	WeaponBlockAttachPoint->SetRelativeRotation(FRotator(0.0f, 45.0f, -45.0f)); // Angled for blocking
 
@@ -105,8 +97,6 @@ void ASairanCharacter::BeginPlay()
 		}
 	}
 
-	// Setup visual mesh (capsule placeholder)
-	SetupVisualMesh();
 
 	// Spawn weapon
 	SpawnWeapon();
@@ -477,33 +467,4 @@ void ASairanCharacter::UpdateGravityScale()
 	}
 }
 
-void ASairanCharacter::SetupVisualMesh()
-{
-	if (!VisualMesh) return;
-
-	// Load capsule mesh (using cylinder as placeholder since it's closer to a capsule)
-	UStaticMesh* CapsuleMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
-	if (CapsuleMesh)
-	{
-		VisualMesh->SetStaticMesh(CapsuleMesh);
-		
-		// Scale to match character capsule size (radius 42, half-height 96)
-		// Cylinder default is 100x100x100, we want it to be approx 84 diameter, 192 tall
-		float Diameter = 84.0f;
-		float Height = 192.0f;
-		FVector Scale = FVector(Diameter / 100.0f, Diameter / 100.0f, Height / 100.0f);
-		VisualMesh->SetRelativeScale3D(Scale);
-		
-		// Position it centered on the capsule
-		VisualMesh->SetRelativeLocation(FVector(0, 0, 0));
-
-		// Create a simple colored material
-		UMaterialInstanceDynamic* DynMaterial = VisualMesh->CreateAndSetMaterialInstanceDynamic(0);
-		if (DynMaterial)
-		{
-			// Light blue color for the character
-			DynMaterial->SetVectorParameterValue(FName("BaseColor"), FLinearColor(0.3f, 0.5f, 0.8f, 1.0f));
-		}
-	}
-}
 
