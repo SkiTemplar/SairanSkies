@@ -6,14 +6,10 @@
 #include "Navigation/PatrolPath.h"
 #include "BehaviorTree/BehaviorTreeComponent.h"
 #include "BehaviorTree/BlackboardComponent.h"
-#include "BehaviorTree/Blackboard/BlackboardKeyType_Vector.h"
-#include "BehaviorTree/Blackboard/BlackboardKeyType_Int.h"
 
 UBTTask_FindPatrolPoint::UBTTask_FindPatrolPoint()
 {
 	NodeName = TEXT("Find Patrol Point");
-	PatrolLocationKey.AddVectorFilter(this, GET_MEMBER_NAME_CHECKED(UBTTask_FindPatrolPoint, PatrolLocationKey));
-	PatrolIndexKey.AddIntFilter(this, GET_MEMBER_NAME_CHECKED(UBTTask_FindPatrolPoint, PatrolIndexKey));
 }
 
 EBTNodeResult::Type UBTTask_FindPatrolPoint::ExecuteTask(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory)
@@ -21,12 +17,20 @@ EBTNodeResult::Type UBTTask_FindPatrolPoint::ExecuteTask(UBehaviorTreeComponent&
 	AEnemyAIController* AIController = Cast<AEnemyAIController>(OwnerComp.GetAIOwner());
 	if (!AIController)
 	{
+		UE_LOG(LogTemp, Warning, TEXT("FindPatrolPoint: No AIController"));
 		return EBTNodeResult::Failed;
 	}
 
 	AEnemyBase* Enemy = AIController->GetControlledEnemy();
-	if (!Enemy || !Enemy->PatrolPath)
+	if (!Enemy)
 	{
+		UE_LOG(LogTemp, Warning, TEXT("FindPatrolPoint: No Enemy"));
+		return EBTNodeResult::Failed;
+	}
+	
+	if (!Enemy->PatrolPath)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("FindPatrolPoint: Enemy %s has no PatrolPath assigned!"), *Enemy->GetName());
 		return EBTNodeResult::Failed;
 	}
 
@@ -37,13 +41,26 @@ EBTNodeResult::Type UBTTask_FindPatrolPoint::ExecuteTask(UBehaviorTreeComponent&
 	}
 
 	APatrolPath* Path = Enemy->PatrolPath;
-	if (Path->GetNumPatrolPoints() == 0)
+	int32 NumPoints = Path->GetNumPatrolPoints();
+	if (NumPoints == 0)
 	{
+		UE_LOG(LogTemp, Warning, TEXT("FindPatrolPoint: PatrolPath %s has 0 points! Add patrol points in the editor."), *Path->GetName());
 		return EBTNodeResult::Failed;
 	}
 
-	int32 CurrentIndex = BlackboardComp->GetValueAsInt(PatrolIndexKey.SelectedKeyName);
+	// Get current patrol index from blackboard
+	int32 CurrentIndex = BlackboardComp->GetValueAsInt(AEnemyBase::BB_PatrolIndex);
 	
+	// Ensure index is valid
+	if (CurrentIndex < 0 || CurrentIndex >= NumPoints)
+	{
+		CurrentIndex = 0;
+	}
+
+	// Use current index as target
+	FVector PatrolLocation = Path->GetPatrolPoint(CurrentIndex);
+
+	// Calculate NEXT index for the next iteration (will be used after MoveToLocation + WaitAtPatrolPoint)
 	int32 NextIndex;
 	if (Enemy->PatrolConfig.bRandomPatrol)
 	{
@@ -51,19 +68,21 @@ EBTNodeResult::Type UBTTask_FindPatrolPoint::ExecuteTask(UBehaviorTreeComponent&
 	}
 	else
 	{
-		bool bReversing = false;
-		NextIndex = Path->GetNextPatrolIndex(CurrentIndex, bReversing);
+		// Simple looping: 0 -> 1 -> 2 -> 0 -> 1 -> 2...
+		NextIndex = (CurrentIndex + 1) % NumPoints;
 	}
 
-	FVector PatrolLocation = Path->GetPatrolPoint(NextIndex);
+	// Update blackboard: store location to move to, and the NEXT index for after we arrive
+	BlackboardComp->SetValueAsVector(AEnemyBase::BB_TargetLocation, PatrolLocation);
+	BlackboardComp->SetValueAsInt(AEnemyBase::BB_PatrolIndex, NextIndex);
 
-	BlackboardComp->SetValueAsVector(PatrolLocationKey.SelectedKeyName, PatrolLocation);
-	BlackboardComp->SetValueAsInt(PatrolIndexKey.SelectedKeyName, NextIndex);
+	UE_LOG(LogTemp, Log, TEXT("FindPatrolPoint: %s going to point %d/%d at %s (next will be %d)"), 
+		*Enemy->GetName(), CurrentIndex, NumPoints, *PatrolLocation.ToString(), NextIndex);
 
 	return EBTNodeResult::Succeeded;
 }
 
 FString UBTTask_FindPatrolPoint::GetStaticDescription() const
 {
-	return FString::Printf(TEXT("Find next patrol point and store in %s"), *PatrolLocationKey.SelectedKeyName.ToString());
+	return TEXT("Find next patrol point and store in TargetLocation");
 }

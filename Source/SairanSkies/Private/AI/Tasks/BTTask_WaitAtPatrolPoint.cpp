@@ -3,6 +3,7 @@
 #include "AI/Tasks/BTTask_WaitAtPatrolPoint.h"
 #include "Enemies/EnemyBase.h"
 #include "AI/EnemyAIController.h"
+#include "Animation/EnemyAnimInstance.h"
 #include "BehaviorTree/BehaviorTreeComponent.h"
 #include "AIController.h"
 
@@ -14,6 +15,9 @@ UBTTask_WaitAtPatrolPoint::UBTTask_WaitAtPatrolPoint()
 	
 	WaitTimer = 0.0f;
 	TargetWaitTime = 0.0f;
+	CurrentLookIndex = 0;
+	LookTimer = 0.0f;
+	bIsRotating = false;
 }
 
 EBTNodeResult::Type UBTTask_WaitAtPatrolPoint::ExecuteTask(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory)
@@ -30,19 +34,44 @@ EBTNodeResult::Type UBTTask_WaitAtPatrolPoint::ExecuteTask(UBehaviorTreeComponen
 		return EBTNodeResult::Failed;
 	}
 
+	// Calculate wait time with variation
 	if (bUseEnemyWaitTime)
 	{
-		TargetWaitTime = Enemy->PatrolConfig.WaitTimeAtPatrolPoint;
+		TargetWaitTime = FMath::RandRange(
+			Enemy->PatrolConfig.WaitTimeAtPatrolPoint,
+			Enemy->PatrolConfig.MaxWaitTimeAtPatrolPoint
+		);
 	}
 	else
 	{
-		TargetWaitTime = CustomWaitTime;
+		TargetWaitTime = FMath::RandRange(CustomWaitTimeMin, CustomWaitTimeMax);
 	}
-
-	TargetWaitTime *= FMath::RandRange(0.8f, 1.2f);
 
 	WaitTimer = 0.0f;
 	AIController->StopMovement();
+
+	// Initialize look around system - using animation system instead of rotating body
+	OriginalRotation = Enemy->GetActorRotation();
+	CurrentLookIndex = 0;
+	LookTimer = 0.0f;
+	bIsRotating = false;
+
+	// Set initial random look direction via animation system
+	if (bLookAround && LookAroundCount > 0)
+	{
+		float RandomYaw = FMath::RandRange(-MaxLookAngle, MaxLookAngle);
+		TargetLookRotation = FRotator(0.0f, RandomYaw, 0.0f);
+		bIsRotating = true;
+		
+		// Use animation system if available
+		UEnemyAnimInstance* AnimInstance = Cast<UEnemyAnimInstance>(Enemy->GetMesh()->GetAnimInstance());
+		if (AnimInstance)
+		{
+			AnimInstance->SetLookAtRotation(RandomYaw, 0.0f);
+		}
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("WaitAtPatrolPoint: %s starting wait for %.1f seconds"), *Enemy->GetName(), TargetWaitTime);
 
 	return EBTNodeResult::InProgress;
 }
@@ -63,34 +92,98 @@ void UBTTask_WaitAtPatrolPoint::TickTask(UBehaviorTreeComponent& OwnerComp, uint
 		return;
 	}
 
-	if (Enemy->GetCurrentTarget())
+	// Get animation instance
+	UEnemyAnimInstance* AnimInstance = Cast<UEnemyAnimInstance>(Enemy->GetMesh()->GetAnimInstance());
+
+	// Interrupt if target detected
+	if (Enemy->GetCurrentTarget() || Enemy->IsAlerted())
 	{
-		Enemy->SetEnemyState(EEnemyState::Chasing);
+		// Clear look at
+		if (AnimInstance)
+		{
+			AnimInstance->ClearLookAt();
+		}
+		
+		if (Enemy->GetCurrentTarget())
+		{
+			Enemy->SetEnemyState(EEnemyState::Chasing);
+		}
+		else if (Enemy->IsAlerted())
+		{
+			Enemy->SetEnemyState(EEnemyState::Investigating);
+		}
+		
 		FinishLatentTask(OwnerComp, EBTNodeResult::Succeeded);
 		return;
 	}
 
 	WaitTimer += DeltaSeconds;
 
-	if (bLookAround)
+	// Handle looking around behavior via animation system (head/torso only)
+	if (bLookAround && CurrentLookIndex < LookAroundCount)
 	{
-		FRotator CurrentRotation = Enemy->GetActorRotation();
-		float OscillationAngle = FMath::Sin(WaitTimer * 2.0f) * LookAroundSpeed;
-		CurrentRotation.Yaw += OscillationAngle * DeltaSeconds;
-		Enemy->SetActorRotation(CurrentRotation);
+		LookTimer += DeltaSeconds;
+		
+		if (LookTimer >= TimePerLookDirection)
+		{
+			CurrentLookIndex++;
+			LookTimer = 0.0f;
+			
+			if (CurrentLookIndex < LookAroundCount)
+			{
+				// Pick new look direction (alternating sides for more natural look)
+				float BaseAngle = (CurrentLookIndex % 2 == 0) ? MaxLookAngle : -MaxLookAngle;
+				float RandomVariation = FMath::RandRange(-20.0f, 20.0f);
+				float NewYaw = BaseAngle * FMath::RandRange(0.5f, 1.0f) + RandomVariation;
+				
+				// Update animation system
+				if (AnimInstance)
+				{
+					AnimInstance->SetLookAtRotation(NewYaw, FMath::RandRange(-10.0f, 10.0f));
+				}
+			}
+			else
+			{
+				// Return to looking forward
+				if (AnimInstance)
+				{
+					AnimInstance->ClearLookAt();
+				}
+			}
+		}
 	}
 
+	// Check if wait is complete
 	if (WaitTimer >= TargetWaitTime)
 	{
+		// Clear any look at
+		if (AnimInstance)
+		{
+			AnimInstance->ClearLookAt();
+		}
+		
+		UE_LOG(LogTemp, Log, TEXT("WaitAtPatrolPoint: %s finished waiting, continuing patrol"), *Enemy->GetName());
 		FinishLatentTask(OwnerComp, EBTNodeResult::Succeeded);
 	}
 }
 
 FString UBTTask_WaitAtPatrolPoint::GetStaticDescription() const
 {
+	FString Description;
+	
 	if (bUseEnemyWaitTime)
 	{
-		return TEXT("Wait at patrol point (using enemy config)");
+		Description = TEXT("Wait using enemy config time");
 	}
-	return FString::Printf(TEXT("Wait at patrol point (%.1f sec)"), CustomWaitTime);
+	else
+	{
+		Description = FString::Printf(TEXT("Wait %.1f-%.1f sec"), CustomWaitTimeMin, CustomWaitTimeMax);
+	}
+	
+	if (bLookAround)
+	{
+		Description += FString::Printf(TEXT(", look around %d times (via animation)"), LookAroundCount);
+	}
+	
+	return Description;
 }

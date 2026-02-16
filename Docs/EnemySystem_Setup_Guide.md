@@ -45,19 +45,23 @@
 
 1. En el Content Browser: **Click derecho → Artificial Intelligence → Blackboard**
 2. Nombrar: `BB_Enemy`
-3. Añadir las siguientes Keys:
+3. Añadir las siguientes Keys (IMPORTANTE: Las claves DEBEN tener exactamente estos nombres):
 
 | Nombre | Tipo | Descripción |
 |--------|------|-------------|
 | `TargetActor` | Object (Actor) | El jugador detectado |
-| `TargetLocation` | Vector | Última ubicación conocida del objetivo |
-| `EnemyState` | Enum (EEnemyState) | Estado actual del enemigo |
+| `TargetLocation` | Vector | Ubicación objetivo (patrulla o último conocimiento del jugador) |
+| `EnemyState` | Int | Estado actual del enemigo (0=Idle, 1=Patrolling, 2=Investigating, 3=Chasing, 4=Positioning, 5=Attacking, 6=Taunting, 7=Dead) |
 | `CanSeeTarget` | Bool | Si puede ver al objetivo actualmente |
 | `PatrolIndex` | Int | Índice actual del punto de patrulla |
 | `ShouldTaunt` | Bool | Si debería hacer taunt |
 | `NearbyAllies` | Int | Número de aliados cercanos |
 | `DistanceToTarget` | Float | Distancia al objetivo |
-| `PatrolLocation` | Vector | Ubicación del punto de patrulla actual |
+| `SuspicionLevel` | Float | Nivel de sospecha (0-1) |
+| `IsAlerted` | Bool | Si está en estado de alerta |
+| `IsInPause` | Bool | Si está en pausa aleatoria |
+
+**ℹ️ NOTA:** El estado del enemigo se almacena como Int para mayor compatibilidad.
 
 ### Paso 3: Crear el Behavior Tree
 
@@ -67,31 +71,100 @@
 
 ### Paso 4: Estructura del Behavior Tree
 
+**IMPORTANTE**: La secuencia de patrullaje debe estar en un **Sequence** node, no en nodos separados.
+
 ```
 [ROOT]
 └── [Selector] - Nodo raíz
     │
-    ├── [Service: UpdateEnemyState]
+    ├── [Service: UpdateEnemyState] (añadir al Selector raíz)
     │
     ├── [Sequence] "Combat" ─ [Decorator: HasTarget]
-    │   ├── [Selector] "Combat Actions"
-    │   │   ├── [Sequence] "Attack Sequence"
-    │   │   │   ├── [Task: ChaseTarget] (bUsePositioningDistance = true)
-    │   │   │   ├── [Task: PositionForAttack]
-    │   │   │   ├── [Task: ApproachForAttack]
-    │   │   │   └── [Task: AttackTarget]
-    │   │   │
-    │   │   └── [Task: PerformTaunt] ─ [Decorator: CheckEnemyState = Taunting]
     │   │
-    │   └── [Task: ChaseTarget] (fallback)
+    │   ├── [Task: ChaseTarget]           ← Persigue al objetivo
+    │   │
+    │   ├── [Selector] "Attack Decision"
+    │   │   │
+    │   │   ├── [Sequence] "Taunt" ─ [Decorator: CheckEnemyState = Taunting]
+    │   │   │   └── [Task: PerformTaunt]  ← Provoca al jugador
+    │   │   │
+    │   │   └── [Sequence] "Attack Flow"
+    │   │       ├── [Task: PositionForAttack]   ← Se posiciona (strafe)
+    │   │       ├── [Task: ApproachForAttack]   ← Se acerca rápido
+    │   │       └── [Task: AttackTarget]        ← Ejecuta el ataque
     │
     ├── [Sequence] "Investigation" ─ [Decorator: CheckEnemyState = Investigating]
-    │   └── [Task: Investigate]
+    │   └── [Task: Investigate]           ← Investiga última ubicación
     │
-    └── [Sequence] "Patrol" ─ [Decorator: HasTarget (inverse)]
-        ├── [Task: FindPatrolPoint]
-        ├── [Task: MoveToLocation] (PatrolLocation)
-        └── [Task: WaitAtPatrolPoint]
+    └── [Sequence] "Patrol" ─ [Decorator: HasTarget (Inverse Check = TRUE)]
+        │
+        │   ⚠️ IMPORTANTE: Estos nodos deben estar en SECUENCIA
+        │
+        ├── [Task: FindPatrolPoint]       ← Encuentra el siguiente punto
+        ├── [Task: IdleBehavior]          ← (Opcional) Pausas naturales
+        ├── [Task: MoveToLocation]        ← Se mueve al punto
+        └── [Task: WaitAtPatrolPoint]     ← Espera en el punto
+```
+
+### Lista Completa de Nodos Disponibles
+
+| Tipo | Nombre | Descripción |
+|------|--------|-------------|
+| **Task** | `FindPatrolPoint` | Encuentra el siguiente punto de patrulla |
+| **Task** | `MoveToLocation` | Mueve al enemigo a una ubicación |
+| **Task** | `WaitAtPatrolPoint` | Espera en un punto de patrulla |
+| **Task** | `IdleBehavior` | Pausas aleatorias durante patrulla (AAA-style) |
+| **Task** | `ChaseTarget` | Persigue al objetivo |
+| **Task** | `PositionForAttack` | Se posiciona a distancia (strafe) |
+| **Task** | `ApproachForAttack` | Se acerca rápidamente para atacar |
+| **Task** | `AttackTarget` | Ejecuta el ataque |
+| **Task** | `PerformTaunt` | Realiza un taunt/provocación |
+| **Task** | `Investigate` | Investiga la última ubicación conocida |
+| **Decorator** | `HasTarget` | Verifica si tiene un objetivo |
+| **Decorator** | `CheckEnemyState` | Verifica el estado actual del enemigo |
+| **Service** | `UpdateEnemyState` | Actualiza el estado en el Blackboard |
+
+**Configuración paso a paso:**
+
+1. **Selector raíz**: Click derecho en ROOT → Add Composite → Selector
+2. **Service en Selector**: Click derecho en el Selector → Add Service → UpdateEnemyState
+3. **Sequence "Combat"**: Click derecho en Selector → Add Composite → Sequence
+4. **Decorator HasTarget**: 
+   - Click derecho en Sequence "Combat" → Add Decorator → HasTarget
+5. **Añadir Tasks de combate al Sequence "Combat"**:
+   - Click derecho en Sequence → Add Task → ChaseTarget
+   - Añadir Selector hijo para decisión de ataque
+   - Dentro: PositionForAttack → ApproachForAttack → AttackTarget
+6. **Sequence "Investigation"**: Click derecho en Selector → Add Composite → Sequence
+7. **Decorator CheckEnemyState = Investigating**:
+   - Click derecho en Sequence "Investigation" → Add Decorator → CheckEnemyState
+   - En Details: State To Check = Investigating
+8. **Sequence "Patrol"**: Click derecho en Selector → Add Composite → Sequence
+9. **Decorator HasTarget (inverso)**: 
+   - Click derecho en Sequence "Patrol" → Add Decorator → HasTarget
+   - En Details: **Inverse Condition = TRUE** (para que solo patrulle cuando NO hay target)
+10. **Añadir Tasks al Sequence "Patrol"**:
+    - Click derecho en Sequence → Add Task → FindPatrolPoint
+    - Click derecho en Sequence → Add Task → IdleBehavior (opcional)
+    - Click derecho en Sequence → Add Task → MoveToLocation
+    - Click derecho en Sequence → Add Task → WaitAtPatrolPoint
+
+**El flujo correcto de patrulla es:**
+```
+FindPatrolPoint (establece TargetLocation) 
+    → IdleBehavior (pausa natural, opcional)
+    → MoveToLocation (se mueve) 
+    → WaitAtPatrolPoint (espera) 
+    → [Sequence completa, vuelve a empezar]
+```
+
+**El flujo correcto de combate es:**
+```
+ChaseTarget (persigue hasta rango)
+    → PositionForAttack (strafe lateral)
+    → ApproachForAttack (se acerca rápido)
+    → AttackTarget (golpea)
+    → [Vuelve a evaluar]
 ```
 
 ### Paso 5: Crear el PatrolPath en el Nivel
@@ -140,8 +213,24 @@ Enemy|Patrol:
   - Patrol Speed Multiplier: 0.4
   - Chase Speed Multiplier: 1.0
   - Wait Time At Patrol Point: 2
+  - Max Wait Time At Patrol Point: 4
   - Patrol Point Acceptance Radius: 100
   - Random Patrol: false
+
+Enemy|Behavior (AAA Natural Behavior):
+  - Chance To Stop During Patrol: 0.15
+  - Min Random Pause Duration: 0.5
+  - Max Random Pause Duration: 2.0
+  - Look Around Speed: 60
+  - Max Look Around Angle: 90
+  - Chance To Look Around: 0.4
+  - Patrol Speed Variation: 0.15
+  - Reaction Time Min: 0.2
+  - Reaction Time Max: 0.6
+  - Suspicion Threshold Investigate: 0.3
+  - Suspicion Threshold Chase: 0.7
+  - Suspicion Build Up Rate: 0.5
+  - Suspicion Decay Rate: 0.2
 
 Enemy|Stats:
   - Max Health: 100
@@ -183,6 +272,67 @@ El jugador debe ser detectable por el sistema de percepción:
 | `Attacking` | Ejecutando ataque |
 | `Taunting` | Provocando al jugador |
 | `Dead` | Muerto |
+
+---
+
+## 🎯 Sistema de Comportamiento Natural (AAA-Style)
+
+### Sistema de Sospecha Gradual
+
+En lugar de detectar instantáneamente al jugador, el enemigo usa un sistema de sospecha gradual:
+
+```
+0.0 ──────────────── 0.3 ──────────────── 0.7 ──────────────── 1.0
+ │                    │                    │                    │
+ └── Tranquilo       └── Alerta          └── Investiga        └── Persigue
+```
+
+**Flujo de detección:**
+1. **Ver al jugador** → La sospecha aumenta gradualmente (`SuspicionBuildUpRate`)
+2. **Umbral 0.3** → Estado de alerta (animación de alerta)
+3. **Umbral 0.7** → Comienza investigación
+4. **Umbral 1.0** → Persecución total
+5. **Perder de vista** → La sospecha decae gradualmente (`SuspicionDecayRate`)
+
+**Tiempo de reacción:** Al alcanzar el umbral de persecución, hay un pequeño delay (0.2-0.6 seg) antes de reaccionar, simulando el tiempo que tarda en "procesar" la información.
+
+### Comportamiento Idle Natural
+
+Durante la patrulla, el enemigo realiza acciones que lo hacen parecer más natural:
+
+| Comportamiento | Descripción |
+|---------------|-------------|
+| **Pausas aleatorias** | Se detiene brevemente durante la patrulla |
+| **Mirar alrededor** | Gira la cabeza en direcciones aleatorias |
+| **Velocidad variable** | Pequeña variación en la velocidad de patrulla |
+| **Esperas variadas** | Tiempo de espera diferente en cada punto de patrulla |
+
+### Blueprint Events para Animaciones
+
+El sistema expone eventos para conectar animaciones en Blueprint:
+
+| Evento | Cuándo se dispara |
+|--------|-------------------|
+| `OnRandomPauseStarted` | Al iniciar una pausa aleatoria |
+| `OnRandomPauseEnded` | Al terminar una pausa aleatoria |
+| `OnLookAroundStarted` | Al empezar a mirar alrededor |
+| `OnSuspicionChanged` | Cuando el nivel de sospecha cambia significativamente |
+| `OnShowConfusion` | Durante investigación (para animación de confusión) |
+
+### BTTask: IdleBehavior
+
+Nuevo nodo de Behavior Tree para pausas aleatorias:
+
+```
+[Task: IdleBehavior]
+├── PauseChance: 0.3 (30% probabilidad de pausar)
+├── MinPauseDuration: 0.5s
+├── MaxPauseDuration: 2.0s
+├── bLookAroundDuringPause: true
+└── bUseEnemyConfig: true (usa BehaviorConfig del enemigo)
+```
+
+Úsalo entre `FindPatrolPoint` y `MoveToLocation` para pausas durante la patrulla.
 
 ---
 
@@ -270,6 +420,27 @@ public:
 - Verifica las condiciones de los Decorators
 - Comprueba que el Blackboard está configurado correctamente
 
+### El enemigo llega al primer punto pero no continúa
+
+**Verificar en Output Log** (Window → Developer Tools → Output Log):
+- Deberías ver: `FindPatrolPoint: Enemy going to point X/Y at (location)`
+- Luego: `MoveToLocation: Enemy starting move to (location)`
+- Luego: `MoveToLocation: Enemy reached destination`
+- Luego: `WaitAtPatrolPoint: Enemy starting wait for X seconds`
+- Luego: `WaitAtPatrolPoint: Enemy finished waiting`
+- Y volver a FindPatrolPoint
+
+**Si no ves estos mensajes:**
+1. **Verifica que MoveToLocation termina**: Si se queda en "Moving", puede ser problema de NavMesh
+2. **Verifica el NavMesh**: `P` en el editor para visualizar. El área debe estar verde.
+3. **Verifica el AcceptanceRadius**: En MoveToLocation node, valor por defecto es 100. Puede ser muy grande o muy pequeño.
+
+**Solución rápida - Verificar NavMesh:**
+1. En el nivel, ve a Window → World Settings
+2. Busca "Navigation" y verifica que hay un NavMesh configurado
+3. Presiona `P` en el viewport para ver el NavMesh (área verde = navegable)
+4. Si no hay NavMesh, añade un `NavMeshBoundsVolume` que cubra tu nivel
+
 ---
 
 ## 📝 Notas Adicionales
@@ -292,6 +463,16 @@ public:
 - Se mantiene a distancia
 - Cada X tiempo spawnea enemigos normales
 - Nuevo BTTask para spawn
+
+---
+
+*Documento para SairanSkies - Sistema de Animación de Enemigos*
+
+---
+
+## 📚 Documentación Relacionada
+
+- **[Animation_Setup_Guide.md](Animation_Setup_Guide.md)** - Guía completa para configurar Animation Blueprints con el sistema de Look At, Turn In Place, y transiciones suaves.
 
 ---
 

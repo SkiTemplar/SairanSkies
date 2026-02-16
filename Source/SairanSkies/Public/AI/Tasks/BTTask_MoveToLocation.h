@@ -20,8 +20,6 @@ public:
 	virtual FString GetStaticDescription() const override;
 
 protected:
-	UPROPERTY(EditAnywhere, Category = "Blackboard")
-	FBlackboardKeySelector LocationKey;
 
 	UPROPERTY(EditAnywhere, Category = "Movement")
 	float AcceptanceRadius = 100.0f;

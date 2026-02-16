@@ -16,11 +16,4 @@ public:
 
 	virtual EBTNodeResult::Type ExecuteTask(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory) override;
 	virtual FString GetStaticDescription() const override;
-
-protected:
-	UPROPERTY(EditAnywhere, Category = "Blackboard")
-	FBlackboardKeySelector PatrolLocationKey;
-
-	UPROPERTY(EditAnywhere, Category = "Blackboard")
-	FBlackboardKeySelector PatrolIndexKey;
 };

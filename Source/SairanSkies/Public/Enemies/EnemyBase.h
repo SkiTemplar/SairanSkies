@@ -15,6 +15,8 @@ class UAISenseConfig_Hearing;
 class UBehaviorTree;
 class UBlackboardComponent;
 class APatrolPath;
+class UEnemyAnimInstance;
+class UAnimMontage;
 
 UCLASS(Abstract)
 class SAIRANSKIES_API AEnemyBase : public ACharacter
@@ -45,6 +47,9 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|Patrol")
 	FEnemyPatrolConfig PatrolConfig;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|Behavior")
+	FEnemyBehaviorConfig BehaviorConfig;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|AI")
 	UBehaviorTree* BehaviorTree;
@@ -77,6 +82,46 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Enemy|State")
 	int32 NearbyAlliesCount;
+
+	// ==================== SUSPICION SYSTEM (AAA-style awareness) ====================
+protected:
+	// Nivel de sospecha actual (0 = tranquilo, 1 = alerta máxima)
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Enemy|Awareness")
+	float CurrentSuspicionLevel;
+
+	// Si está en estado de alerta (vio algo sospechoso)
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Enemy|Awareness")
+	bool bIsAlerted;
+
+	// Timer de reacción (simula tiempo de procesamiento)
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Enemy|Awareness")
+	float ReactionTimer;
+
+	// Si está procesando una detección
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Enemy|Awareness")
+	bool bIsProcessingDetection;
+
+	// Actor que causó la sospecha
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Enemy|Awareness")
+	AActor* SuspiciousActor;
+
+	// ==================== IDLE BEHAVIOR STATE ====================
+protected:
+	// Si está en una pausa aleatoria
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Enemy|IdleBehavior")
+	bool bIsInRandomPause;
+
+	// Timer para la pausa actual
+	float RandomPauseTimer;
+	float RandomPauseDuration;
+
+	// Rotación objetivo para mirar alrededor
+	FRotator LookAroundTargetRotation;
+	bool bIsLookingAround;
+	float LookAroundTimer;
+
+	// Velocidad de patrulla modificada actual
+	float CurrentPatrolSpeedModifier;
 
 	// ==================== DELEGATES ====================
 public:
@@ -183,6 +228,92 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Enemy|Behavior")
 	virtual bool ShouldTaunt() const;
 
+	// ==================== SUSPICION SYSTEM ====================
+public:
+	UFUNCTION(BlueprintCallable, Category = "Enemy|Awareness")
+	void AddSuspicion(float Amount, AActor* Source);
+
+	UFUNCTION(BlueprintCallable, Category = "Enemy|Awareness")
+	void SetFullAlert(AActor* Source);
+
+	UFUNCTION(BlueprintPure, Category = "Enemy|Awareness")
+	float GetSuspicionLevel() const { return CurrentSuspicionLevel; }
+
+	UFUNCTION(BlueprintPure, Category = "Enemy|Awareness")
+	bool IsAlerted() const { return bIsAlerted; }
+
+	UFUNCTION(BlueprintPure, Category = "Enemy|Awareness")
+	bool IsProcessingDetection() const { return bIsProcessingDetection; }
+
+protected:
+	void UpdateSuspicionSystem(float DeltaTime);
+	void ProcessDetectionReaction();
+
+	// ==================== IDLE/NATURAL BEHAVIOR ====================
+public:
+	UFUNCTION(BlueprintCallable, Category = "Enemy|IdleBehavior")
+	void StartRandomPause();
+
+	UFUNCTION(BlueprintCallable, Category = "Enemy|IdleBehavior")
+	void StartLookingAround();
+
+	UFUNCTION(BlueprintPure, Category = "Enemy|IdleBehavior")
+	bool IsInRandomPause() const { return bIsInRandomPause; }
+
+	UFUNCTION(BlueprintPure, Category = "Enemy|IdleBehavior")
+	bool IsLookingAround() const { return bIsLookingAround; }
+
+	UFUNCTION(BlueprintCallable, Category = "Enemy|IdleBehavior")
+	bool ShouldDoRandomPause() const;
+
+	UFUNCTION(BlueprintCallable, Category = "Enemy|IdleBehavior")
+	float GetRandomizedPatrolSpeed() const;
+
+protected:
+	void UpdateIdleBehavior(float DeltaTime);
+	void UpdateLookAround(float DeltaTime);
+
+	// ==================== ANIMATION ====================
+public:
+	// Get the enemy's animation instance
+	UFUNCTION(BlueprintPure, Category = "Enemy|Animation")
+	UEnemyAnimInstance* GetEnemyAnimInstance() const;
+
+	// Play an attack montage
+	UFUNCTION(BlueprintCallable, Category = "Enemy|Animation")
+	void PlayAttackMontage(UAnimMontage* Montage, float PlayRate = 1.0f);
+
+	// Play a taunt montage
+	UFUNCTION(BlueprintCallable, Category = "Enemy|Animation")
+	void PlayTauntMontage(UAnimMontage* Montage, float PlayRate = 1.0f);
+
+	// Play a hit reaction montage
+	UFUNCTION(BlueprintCallable, Category = "Enemy|Animation")
+	void PlayHitReactionMontage(UAnimMontage* Montage, float PlayRate = 1.0f);
+
+	// Set where the enemy should look (via animation, not body rotation)
+	UFUNCTION(BlueprintCallable, Category = "Enemy|Animation")
+	void SetAnimationLookAtTarget(FVector WorldLocation);
+
+	// Set look at rotation directly
+	UFUNCTION(BlueprintCallable, Category = "Enemy|Animation")
+	void SetAnimationLookAtRotation(float Yaw, float Pitch);
+
+	// Clear look at animation
+	UFUNCTION(BlueprintCallable, Category = "Enemy|Animation")
+	void ClearAnimationLookAt();
+
+protected:
+	// Animation montages (set in Blueprint)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|Animation")
+	TArray<UAnimMontage*> AttackMontages;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|Animation")
+	TArray<UAnimMontage*> TauntMontages;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|Animation")
+	TArray<UAnimMontage*> HitReactionMontages;
+
 	// ==================== MOVEMENT ====================
 public:
 	UFUNCTION(BlueprintCallable, Category = "Enemy|Movement")
@@ -208,6 +339,9 @@ public:
 	static const FName BB_ShouldTaunt;
 	static const FName BB_NearbyAllies;
 	static const FName BB_DistanceToTarget;
+	static const FName BB_SuspicionLevel;
+	static const FName BB_IsAlerted;
+	static const FName BB_IsInPause;
 
 protected:
 	void UpdateBlackboard();
@@ -218,4 +352,26 @@ protected:
 	virtual void OnStateEnter(EEnemyState NewState);
 	virtual void OnStateExit(EEnemyState OldState);
 	virtual void HandleCombatBehavior(float DeltaTime);
+
+	// ==================== BLUEPRINT EVENTS ====================
+public:
+	// Llamado cuando el enemigo empieza una pausa aleatoria (para animaciones)
+	UFUNCTION(BlueprintImplementableEvent, Category = "Enemy|Events")
+	void OnRandomPauseStarted();
+
+	// Llamado cuando el enemigo termina una pausa aleatoria
+	UFUNCTION(BlueprintImplementableEvent, Category = "Enemy|Events")
+	void OnRandomPauseEnded();
+
+	// Llamado cuando el enemigo mira alrededor
+	UFUNCTION(BlueprintImplementableEvent, Category = "Enemy|Events")
+	void OnLookAroundStarted();
+
+	// Llamado cuando el nivel de sospecha cambia significativamente
+	UFUNCTION(BlueprintImplementableEvent, Category = "Enemy|Events")
+	void OnSuspicionChanged(float NewLevel, float OldLevel);
+
+	// Llamado cuando el enemigo muestra confusión (durante investigación)
+	UFUNCTION(BlueprintImplementableEvent, Category = "Enemy|Events")
+	void OnShowConfusion();
 };

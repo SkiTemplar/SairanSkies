@@ -133,9 +133,13 @@ struct FEnemyPatrolConfig
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Patrol", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float ChaseSpeedMultiplier = 1.0f;
 
-	// Tiempo de espera en cada punto de patrulla
+	// Tiempo de espera en cada punto de patrulla (mínimo)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Patrol")
 	float WaitTimeAtPatrolPoint = 2.0f;
+
+	// Tiempo de espera máximo (se elige aleatorio entre min y max)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Patrol")
+	float MaxWaitTimeAtPatrolPoint = 4.0f;
 
 	// Radio de aceptación para llegar a un punto
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Patrol")
@@ -144,6 +148,102 @@ struct FEnemyPatrolConfig
 	// Si el patrullaje es aleatorio
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Patrol")
 	bool bRandomPatrol = false;
+};
+
+/**
+ * Configuración de comportamiento natural/idle del enemigo (AAA-style)
+ */
+USTRUCT(BlueprintType)
+struct FEnemyBehaviorConfig
+{
+	GENERATED_BODY()
+
+	// ========== IDLE/PATROL BEHAVIOR ==========
+	
+	// Probabilidad de detenerse brevemente durante la patrulla (0-1)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Idle", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float ChanceToStopDuringPatrol = 0.15f;
+
+	// Duración mínima de pausa aleatoria
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Idle")
+	float MinRandomPauseDuration = 0.5f;
+
+	// Duración máxima de pausa aleatoria
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Idle")
+	float MaxRandomPauseDuration = 2.0f;
+
+	// Velocidad de rotación al mirar alrededor (grados/segundo)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Idle")
+	float LookAroundSpeed = 60.0f;
+
+	// Ángulo máximo de rotación al mirar alrededor
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Idle")
+	float MaxLookAroundAngle = 90.0f;
+
+	// Probabilidad de mirar en una dirección aleatoria al esperar
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Idle", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float ChanceToLookAround = 0.4f;
+
+	// Variación aleatoria en velocidad de patrulla (porcentaje)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Idle", meta = (ClampMin = "0.0", ClampMax = "0.5"))
+	float PatrolSpeedVariation = 0.15f;
+
+	// ========== ALERT/DETECTION BEHAVIOR ==========
+
+	// Tiempo de reacción antes de perseguir (simula "procesar" la información)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Alert")
+	float ReactionTimeMin = 0.2f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Alert")
+	float ReactionTimeMax = 0.6f;
+
+	// Nivel de sospecha necesario para investigar (0-1)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Alert", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float SuspicionThresholdInvestigate = 0.3f;
+
+	// Nivel de sospecha necesario para perseguir (0-1)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Alert", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float SuspicionThresholdChase = 0.7f;
+
+	// Velocidad a la que aumenta la sospecha por segundo (cuando ve al jugador)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Alert")
+	float SuspicionBuildUpRate = 0.5f;
+
+	// Velocidad a la que decae la sospecha por segundo (cuando no ve al jugador)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Alert")
+	float SuspicionDecayRate = 0.2f;
+
+	// ========== COMBAT BEHAVIOR ==========
+
+	// Probabilidad de dudar antes de atacar
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float ChanceToHesitateBeforeAttack = 0.2f;
+
+	// Duración de la duda antes de atacar
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
+	float HesitationDuration = 0.5f;
+
+	// Probabilidad de hacer strafe durante el combate
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float ChanceToStrafe = 0.3f;
+
+	// Duración del strafe
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
+	float StrafeDuration = 1.5f;
+
+	// ========== INVESTIGATION BEHAVIOR ==========
+
+	// Número de puntos a investigar antes de rendirse
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Investigation")
+	int32 InvestigationPointsToCheck = 3;
+
+	// Tiempo mirando en cada punto de investigación
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Investigation")
+	float TimeAtEachInvestigationPoint = 2.0f;
+
+	// Probabilidad de rascarse la cabeza / gesto de confusión
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Investigation", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float ChanceToShowConfusion = 0.3f;
 };
 
 // Delegate para notificar cambios de estado

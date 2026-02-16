@@ -3,6 +3,7 @@
 #include "Enemies/EnemyBase.h"
 #include "AI/EnemyAIController.h"
 #include "Navigation/PatrolPath.h"
+#include "Animation/EnemyAnimInstance.h"
 
 #include "Perception/AIPerceptionComponent.h"
 #include "Perception/AISenseConfig_Sight.h"
@@ -14,6 +15,7 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "Engine/World.h"
+#include "Components/SkeletalMeshComponent.h"
 
 // Blackboard Keys
 const FName AEnemyBase::BB_TargetActor = TEXT("TargetActor");
@@ -24,6 +26,9 @@ const FName AEnemyBase::BB_PatrolIndex = TEXT("PatrolIndex");
 const FName AEnemyBase::BB_ShouldTaunt = TEXT("ShouldTaunt");
 const FName AEnemyBase::BB_NearbyAllies = TEXT("NearbyAllies");
 const FName AEnemyBase::BB_DistanceToTarget = TEXT("DistanceToTarget");
+const FName AEnemyBase::BB_SuspicionLevel = TEXT("SuspicionLevel");
+const FName AEnemyBase::BB_IsAlerted = TEXT("IsAlerted");
+const FName AEnemyBase::BB_IsInPause = TEXT("IsInPause");
 
 AEnemyBase::AEnemyBase()
 {
@@ -42,6 +47,21 @@ AEnemyBase::AEnemyBase()
 	NearbyAlliesCount = 0;
 	AttackCooldownTimer = 0.0f;
 	BaseMaxWalkSpeed = 600.0f;
+
+	// Initialize suspicion system
+	CurrentSuspicionLevel = 0.0f;
+	bIsAlerted = false;
+	ReactionTimer = 0.0f;
+	bIsProcessingDetection = false;
+	SuspiciousActor = nullptr;
+
+	// Initialize idle behavior
+	bIsInRandomPause = false;
+	RandomPauseTimer = 0.0f;
+	RandomPauseDuration = 0.0f;
+	bIsLookingAround = false;
+	LookAroundTimer = 0.0f;
+	CurrentPatrolSpeedModifier = 1.0f;
 }
 
 void AEnemyBase::BeginPlay()
@@ -88,6 +108,12 @@ void AEnemyBase::Tick(float DeltaTime)
 			bCanAttack = true;
 		}
 	}
+
+	// Update suspicion system (AAA-style gradual awareness)
+	UpdateSuspicionSystem(DeltaTime);
+
+	// Update idle behaviors (random pauses, looking around)
+	UpdateIdleBehavior(DeltaTime);
 
 	// Update perception
 	UpdateTargetPerception();
@@ -509,10 +535,312 @@ void AEnemyBase::UpdateBlackboard()
 	}
 
 	BlackboardComp->SetValueAsObject(BB_TargetActor, CurrentTarget);
-	BlackboardComp->SetValueAsVector(BB_TargetLocation, LastKnownTargetLocation);
-	BlackboardComp->SetValueAsEnum(BB_EnemyState, static_cast<uint8>(CurrentState));
+	
+	// Only update TargetLocation if we have a target (don't overwrite patrol points!)
+	if (CurrentTarget)
+	{
+		BlackboardComp->SetValueAsVector(BB_TargetLocation, LastKnownTargetLocation);
+	}
+	
+	BlackboardComp->SetValueAsInt(BB_EnemyState, static_cast<int32>(CurrentState));
 	BlackboardComp->SetValueAsBool(BB_CanSeeTarget, CanSeeTarget());
 	BlackboardComp->SetValueAsBool(BB_ShouldTaunt, ShouldTaunt());
 	BlackboardComp->SetValueAsInt(BB_NearbyAllies, NearbyAlliesCount);
 	BlackboardComp->SetValueAsFloat(BB_DistanceToTarget, GetDistanceToTarget());
+	
+	// New AAA-style awareness keys
+	BlackboardComp->SetValueAsFloat(BB_SuspicionLevel, CurrentSuspicionLevel);
+	BlackboardComp->SetValueAsBool(BB_IsAlerted, bIsAlerted);
+	BlackboardComp->SetValueAsBool(BB_IsInPause, bIsInRandomPause);
 }
+
+// ==================== SUSPICION SYSTEM ====================
+
+void AEnemyBase::AddSuspicion(float Amount, AActor* Source)
+{
+	float OldLevel = CurrentSuspicionLevel;
+	CurrentSuspicionLevel = FMath::Clamp(CurrentSuspicionLevel + Amount, 0.0f, 1.0f);
+	SuspiciousActor = Source;
+
+	// Fire event if significant change
+	if (FMath::Abs(CurrentSuspicionLevel - OldLevel) > 0.1f)
+	{
+		OnSuspicionChanged(CurrentSuspicionLevel, OldLevel);
+	}
+
+	// Check thresholds
+	if (CurrentSuspicionLevel >= BehaviorConfig.SuspicionThresholdChase && !bIsProcessingDetection)
+	{
+		// Start reaction timer before fully engaging
+		bIsProcessingDetection = true;
+		ReactionTimer = FMath::RandRange(BehaviorConfig.ReactionTimeMin, BehaviorConfig.ReactionTimeMax);
+	}
+	else if (CurrentSuspicionLevel >= BehaviorConfig.SuspicionThresholdInvestigate && !bIsAlerted)
+	{
+		bIsAlerted = true;
+	}
+}
+
+void AEnemyBase::SetFullAlert(AActor* Source)
+{
+	CurrentSuspicionLevel = 1.0f;
+	SuspiciousActor = Source;
+	bIsAlerted = true;
+	bIsProcessingDetection = false;
+	
+	// Immediate reaction (no delay for direct alert)
+	SetTarget(Source, EEnemySenseType::Alert);
+}
+
+void AEnemyBase::UpdateSuspicionSystem(float DeltaTime)
+{
+	// Process detection reaction
+	if (bIsProcessingDetection)
+	{
+		ReactionTimer -= DeltaTime;
+		if (ReactionTimer <= 0.0f)
+		{
+			ProcessDetectionReaction();
+		}
+		return;
+	}
+
+	// Decay suspicion when not seeing anything suspicious
+	if (!CanSeeTarget() && CurrentSuspicionLevel > 0.0f)
+	{
+		float OldLevel = CurrentSuspicionLevel;
+		CurrentSuspicionLevel = FMath::Max(0.0f, CurrentSuspicionLevel - BehaviorConfig.SuspicionDecayRate * DeltaTime);
+		
+		// Reset alert state if suspicion drops low enough
+		if (CurrentSuspicionLevel < BehaviorConfig.SuspicionThresholdInvestigate * 0.5f)
+		{
+			bIsAlerted = false;
+		}
+
+		if (CurrentSuspicionLevel <= 0.0f && OldLevel > 0.0f)
+		{
+			OnSuspicionChanged(0.0f, OldLevel);
+		}
+	}
+	// Build suspicion when seeing the target
+	else if (CanSeeTarget() && CurrentTarget)
+	{
+		AddSuspicion(BehaviorConfig.SuspicionBuildUpRate * DeltaTime, CurrentTarget);
+	}
+}
+
+void AEnemyBase::ProcessDetectionReaction()
+{
+	bIsProcessingDetection = false;
+
+	if (SuspiciousActor && CurrentSuspicionLevel >= BehaviorConfig.SuspicionThresholdChase)
+	{
+		// Full detection - start chasing
+		SetTarget(SuspiciousActor, EEnemySenseType::Sight);
+		SetEnemyState(EEnemyState::Chasing);
+	}
+	else if (CurrentSuspicionLevel >= BehaviorConfig.SuspicionThresholdInvestigate)
+	{
+		// Partial detection - investigate
+		if (SuspiciousActor)
+		{
+			LastKnownTargetLocation = SuspiciousActor->GetActorLocation();
+		}
+		SetEnemyState(EEnemyState::Investigating);
+	}
+}
+
+// ==================== IDLE/NATURAL BEHAVIOR ====================
+
+void AEnemyBase::UpdateIdleBehavior(float DeltaTime)
+{
+	// Only update idle behaviors during patrol/idle states
+	if (CurrentState != EEnemyState::Patrolling && CurrentState != EEnemyState::Idle)
+	{
+		// Reset idle state when not patrolling
+		if (bIsInRandomPause)
+		{
+			bIsInRandomPause = false;
+			OnRandomPauseEnded();
+		}
+		bIsLookingAround = false;
+		return;
+	}
+
+	// Handle random pause
+	if (bIsInRandomPause)
+	{
+		RandomPauseTimer -= DeltaTime;
+		
+		// Look around during pause
+		UpdateLookAround(DeltaTime);
+		
+		if (RandomPauseTimer <= 0.0f)
+		{
+			bIsInRandomPause = false;
+			bIsLookingAround = false;
+			OnRandomPauseEnded();
+		}
+	}
+
+	// Handle looking around even when not paused (at patrol points)
+	if (bIsLookingAround && !bIsInRandomPause)
+	{
+		UpdateLookAround(DeltaTime);
+	}
+}
+
+void AEnemyBase::UpdateLookAround(float DeltaTime)
+{
+	if (!bIsLookingAround)
+	{
+		return;
+	}
+
+	LookAroundTimer -= DeltaTime;
+
+	// Smoothly rotate towards target rotation
+	FRotator CurrentRotation = GetActorRotation();
+	FRotator NewRotation = FMath::RInterpTo(CurrentRotation, LookAroundTargetRotation, DeltaTime, 2.0f);
+	SetActorRotation(FRotator(0.0f, NewRotation.Yaw, 0.0f));
+
+	// Pick new random direction periodically
+	if (LookAroundTimer <= 0.0f)
+	{
+		if (FMath::RandRange(0.0f, 1.0f) < 0.5f)
+		{
+			// Continue looking around
+			float RandomYaw = FMath::RandRange(-BehaviorConfig.MaxLookAroundAngle, BehaviorConfig.MaxLookAroundAngle);
+			LookAroundTargetRotation = GetActorRotation();
+			LookAroundTargetRotation.Yaw += RandomYaw;
+			LookAroundTimer = FMath::RandRange(1.0f, 2.5f);
+		}
+		else
+		{
+			// Stop looking around
+			bIsLookingAround = false;
+		}
+	}
+}
+
+void AEnemyBase::StartRandomPause()
+{
+	if (bIsInRandomPause || CurrentState == EEnemyState::Dead)
+	{
+		return;
+	}
+
+	bIsInRandomPause = true;
+	RandomPauseDuration = FMath::RandRange(BehaviorConfig.MinRandomPauseDuration, BehaviorConfig.MaxRandomPauseDuration);
+	RandomPauseTimer = RandomPauseDuration;
+
+	// Maybe start looking around
+	if (FMath::RandRange(0.0f, 1.0f) < BehaviorConfig.ChanceToLookAround)
+	{
+		StartLookingAround();
+	}
+
+	OnRandomPauseStarted();
+}
+
+void AEnemyBase::StartLookingAround()
+{
+	if (bIsLookingAround)
+	{
+		return;
+	}
+
+	bIsLookingAround = true;
+	LookAroundTimer = FMath::RandRange(1.0f, 2.0f);
+	
+	// Pick initial random direction
+	float RandomYaw = FMath::RandRange(-BehaviorConfig.MaxLookAroundAngle, BehaviorConfig.MaxLookAroundAngle);
+	LookAroundTargetRotation = GetActorRotation();
+	LookAroundTargetRotation.Yaw += RandomYaw;
+
+	OnLookAroundStarted();
+}
+
+bool AEnemyBase::ShouldDoRandomPause() const
+{
+	if (CurrentState != EEnemyState::Patrolling || bIsInRandomPause || bIsAlerted)
+	{
+		return false;
+	}
+
+	return FMath::RandRange(0.0f, 1.0f) < BehaviorConfig.ChanceToStopDuringPatrol;
+}
+
+float AEnemyBase::GetRandomizedPatrolSpeed() const
+{
+	float BaseSpeed = PatrolConfig.PatrolSpeedMultiplier;
+	float Variation = BehaviorConfig.PatrolSpeedVariation;
+	float RandomModifier = FMath::RandRange(1.0f - Variation, 1.0f + Variation);
+	return BaseSpeed * RandomModifier;
+}
+
+// ==================== ANIMATION ====================
+
+UEnemyAnimInstance* AEnemyBase::GetEnemyAnimInstance() const
+{
+	if (GetMesh())
+	{
+		return Cast<UEnemyAnimInstance>(GetMesh()->GetAnimInstance());
+	}
+	return nullptr;
+}
+
+void AEnemyBase::PlayAttackMontage(UAnimMontage* Montage, float PlayRate)
+{
+	UEnemyAnimInstance* AnimInstance = GetEnemyAnimInstance();
+	if (AnimInstance && Montage)
+	{
+		AnimInstance->PlayActionMontage(Montage, PlayRate);
+	}
+}
+
+void AEnemyBase::PlayTauntMontage(UAnimMontage* Montage, float PlayRate)
+{
+	UEnemyAnimInstance* AnimInstance = GetEnemyAnimInstance();
+	if (AnimInstance && Montage)
+	{
+		AnimInstance->PlayActionMontage(Montage, PlayRate);
+	}
+}
+
+void AEnemyBase::PlayHitReactionMontage(UAnimMontage* Montage, float PlayRate)
+{
+	UEnemyAnimInstance* AnimInstance = GetEnemyAnimInstance();
+	if (AnimInstance && Montage)
+	{
+		AnimInstance->PlayActionMontage(Montage, PlayRate);
+	}
+}
+
+void AEnemyBase::SetAnimationLookAtTarget(FVector WorldLocation)
+{
+	UEnemyAnimInstance* AnimInstance = GetEnemyAnimInstance();
+	if (AnimInstance)
+	{
+		AnimInstance->SetLookAtTarget(WorldLocation);
+	}
+}
+
+void AEnemyBase::SetAnimationLookAtRotation(float Yaw, float Pitch)
+{
+	UEnemyAnimInstance* AnimInstance = GetEnemyAnimInstance();
+	if (AnimInstance)
+	{
+		AnimInstance->SetLookAtRotation(Yaw, Pitch);
+	}
+}
+
+void AEnemyBase::ClearAnimationLookAt()
+{
+	UEnemyAnimInstance* AnimInstance = GetEnemyAnimInstance();
+	if (AnimInstance)
+	{
+		AnimInstance->ClearLookAt();
+	}
+}
+

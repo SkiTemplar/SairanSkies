@@ -43,10 +43,7 @@ EBTNodeResult::Type UBTTask_ChaseTarget::ExecuteTask(UBehaviorTreeComponent& Own
 
 	EPathFollowingRequestResult::Type MoveResult = AIController->MoveToActor(
 		Target,
-		TargetDistance,
-		true,
-		true,
-		false
+		TargetDistance
 	);
 
 	if (MoveResult == EPathFollowingRequestResult::Failed)
@@ -97,7 +94,7 @@ void UBTTask_ChaseTarget::TickTask(UBehaviorTreeComponent& OwnerComp, uint8* Nod
 	EPathFollowingStatus::Type MoveStatus = AIController->GetMoveStatus();
 	if (MoveStatus == EPathFollowingStatus::Idle || MoveStatus == EPathFollowingStatus::Waiting)
 	{
-		AIController->MoveToActor(Target, TargetDistance, true, true, false);
+		AIController->MoveToActor(Target, TargetDistance);
 	}
 }
 

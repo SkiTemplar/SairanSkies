@@ -53,9 +53,9 @@ void AEnemyAIController::StartBehaviorTree(UBehaviorTree* Tree)
 
 	if (Tree->BlackboardAsset)
 	{
-		UBlackboardComponent* BlackboardComp = Blackboard.Get();
-		if (UseBlackboard(Tree->BlackboardAsset, BlackboardComp))
+		if (Blackboard)
 		{
+			Blackboard->InitializeBlackboard(*Tree->BlackboardAsset);
 			InitializeBlackboardValues();
 		}
 	}
@@ -134,10 +134,15 @@ void AEnemyAIController::InitializeBlackboardValues()
 
 	Blackboard->SetValueAsObject(AEnemyBase::BB_TargetActor, nullptr);
 	Blackboard->SetValueAsVector(AEnemyBase::BB_TargetLocation, FVector::ZeroVector);
-	Blackboard->SetValueAsEnum(AEnemyBase::BB_EnemyState, static_cast<uint8>(EEnemyState::Idle));
+	Blackboard->SetValueAsInt(AEnemyBase::BB_EnemyState, static_cast<int32>(EEnemyState::Idle));
 	Blackboard->SetValueAsBool(AEnemyBase::BB_CanSeeTarget, false);
 	Blackboard->SetValueAsInt(AEnemyBase::BB_PatrolIndex, 0);
 	Blackboard->SetValueAsBool(AEnemyBase::BB_ShouldTaunt, false);
 	Blackboard->SetValueAsInt(AEnemyBase::BB_NearbyAllies, 0);
 	Blackboard->SetValueAsFloat(AEnemyBase::BB_DistanceToTarget, 0.0f);
+	
+	// AAA-style awareness system
+	Blackboard->SetValueAsFloat(AEnemyBase::BB_SuspicionLevel, 0.0f);
+	Blackboard->SetValueAsBool(AEnemyBase::BB_IsAlerted, false);
+	Blackboard->SetValueAsBool(AEnemyBase::BB_IsInPause, false);
 }
