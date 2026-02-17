@@ -5,6 +5,15 @@
 #include "CoreMinimal.h"
 #include "EnemyTypes.generated.h"
 
+// Forward declarations
+class UAnimMontage;
+class USoundBase;
+class UNiagaraSystem;
+class UParticleSystem;
+class USkeletalMesh;
+class UStaticMesh;
+class UMaterialInterface;
+
 /**
  * Estados de comportamiento del enemigo
  */
@@ -18,6 +27,7 @@ enum class EEnemyState : uint8
 	Positioning		UMETA(DisplayName = "Positioning"),
 	Attacking		UMETA(DisplayName = "Attacking"),
 	Taunting		UMETA(DisplayName = "Taunting"),
+	Conversing		UMETA(DisplayName = "Conversing"),
 	Dead			UMETA(DisplayName = "Dead")
 };
 
@@ -257,4 +267,335 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnPlayerLost);
 
 // Delegate para notificar muerte
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnEnemyDeath, AController*, InstigatorController);
+
+// Forward declaration for conversation delegate
+class AEnemyBase;
+
+// Delegate para notificar inicio/fin de conversación
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnConversationStarted, AEnemyBase*, ConversationPartner);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnConversationEnded);
+
+
+/**
+ * Configuración de animaciones del enemigo
+ */
+USTRUCT(BlueprintType)
+struct FEnemyAnimationConfig
+{
+	GENERATED_BODY()
+
+	// ========== MONTAJES DE COMBATE ==========
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
+	TArray<UAnimMontage*> AttackMontages;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
+	TArray<UAnimMontage*> HeavyAttackMontages;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
+	TArray<UAnimMontage*> HitReactionMontages;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
+	UAnimMontage* DeathMontage = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
+	UAnimMontage* BlockMontage = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
+	UAnimMontage* DodgeMontage = nullptr;
+
+	// ========== MONTAJES DE COMPORTAMIENTO ==========
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Behavior")
+	TArray<UAnimMontage*> TauntMontages;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Behavior")
+	TArray<UAnimMontage*> InvestigateMontages;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Behavior")
+	UAnimMontage* ConfusionMontage = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Behavior")
+	UAnimMontage* AlertMontage = nullptr;
+
+	// ========== MONTAJES DE CONVERSACIÓN ==========
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Conversation")
+	TArray<UAnimMontage*> ConversationIdleMontages;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Conversation")
+	TArray<UAnimMontage*> ConversationGestureMontages;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Conversation")
+	UAnimMontage* ConversationStartMontage = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Conversation")
+	UAnimMontage* ConversationEndMontage = nullptr;
+
+	// ========== MONTAJES DE IDLE ==========
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Idle")
+	TArray<UAnimMontage*> IdleMontages;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Idle")
+	UAnimMontage* LookAroundMontage = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Idle")
+	UAnimMontage* StretchMontage = nullptr;
+};
+
+/**
+ * Configuración de sonidos del enemigo
+ */
+USTRUCT(BlueprintType)
+struct FEnemySoundConfig
+{
+	GENERATED_BODY()
+
+	// ========== SONIDOS DE COMBATE ==========
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
+	TArray<USoundBase*> AttackSounds;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
+	TArray<USoundBase*> HitSounds;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
+	TArray<USoundBase*> DeathSounds;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
+	TArray<USoundBase*> PainSounds;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
+	USoundBase* BlockSound = nullptr;
+
+	// ========== SONIDOS DE VOZ ==========
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Voice")
+	TArray<USoundBase*> TauntVoices;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Voice")
+	TArray<USoundBase*> AlertVoices;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Voice")
+	TArray<USoundBase*> InvestigateVoices;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Voice")
+	TArray<USoundBase*> ConfusionVoices;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Voice")
+	TArray<USoundBase*> SpotPlayerVoices;
+
+	// ========== SONIDOS DE CONVERSACIÓN ==========
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Conversation")
+	TArray<USoundBase*> ConversationVoices;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Conversation")
+	TArray<USoundBase*> LaughSounds;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Conversation")
+	TArray<USoundBase*> AgreementSounds;
+
+	// ========== SONIDOS DE MOVIMIENTO ==========
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement")
+	TArray<USoundBase*> FootstepSounds;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement")
+	USoundBase* ArmorRustleSound = nullptr;
+
+	// ========== CONFIGURACIÓN DE AUDIO ==========
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
+	float VoiceVolume = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
+	float SFXVolume = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
+	float MinTimeBetweenVoices = 3.0f;
+};
+
+/**
+ * Configuración de efectos visuales del enemigo
+ */
+USTRUCT(BlueprintType)
+struct FEnemyVFXConfig
+{
+	GENERATED_BODY()
+
+	// ========== EFECTOS DE COMBATE (Niagara) ==========
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Niagara")
+	UNiagaraSystem* HitEffect = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Niagara")
+	UNiagaraSystem* BloodEffect = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Niagara")
+	UNiagaraSystem* DeathEffect = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Niagara")
+	UNiagaraSystem* BlockEffect = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Niagara")
+	UNiagaraSystem* AttackTrailEffect = nullptr;
+
+	// ========== EFECTOS DE ESTADO (Niagara) ==========
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "State|Niagara")
+	UNiagaraSystem* AlertEffect = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "State|Niagara")
+	UNiagaraSystem* ConfusionEffect = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "State|Niagara")
+	UNiagaraSystem* SpotPlayerEffect = nullptr;
+
+	// ========== EFECTOS LEGACY (Cascade) ==========
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Legacy|Cascade")
+	UParticleSystem* HitParticle = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Legacy|Cascade")
+	UParticleSystem* DeathParticle = nullptr;
+};
+
+/**
+ * Configuración de meshes y materiales del enemigo
+ */
+USTRUCT(BlueprintType)
+struct FEnemyMeshConfig
+{
+	GENERATED_BODY()
+
+	// ========== SKELETAL MESHES ==========
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skeletal")
+	USkeletalMesh* BodyMesh = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skeletal")
+	USkeletalMesh* HeadMesh = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skeletal")
+	TArray<USkeletalMesh*> ArmorVariants;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skeletal")
+	TArray<USkeletalMesh*> WeaponMeshes;
+
+	// ========== STATIC MESHES (Props) ==========
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Static")
+	UStaticMesh* ShieldMesh = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Static")
+	TArray<UStaticMesh*> AccessoryMeshes;
+
+	// ========== MATERIALES ==========
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Materials")
+	TArray<UMaterialInterface*> BodyMaterials;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Materials")
+	TArray<UMaterialInterface*> ArmorMaterials;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Materials")
+	UMaterialInterface* DamageMaterial = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Materials")
+	UMaterialInterface* DeathMaterial = nullptr;
+};
+
+/**
+ * Configuración de sockets y attachment points
+ */
+USTRUCT(BlueprintType)
+struct FEnemySocketConfig
+{
+	GENERATED_BODY()
+
+	// ========== SOCKETS DE ARMAS ==========
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapons")
+	FName RightHandSocket = TEXT("hand_r_socket");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapons")
+	FName LeftHandSocket = TEXT("hand_l_socket");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapons")
+	FName BackWeaponSocket = TEXT("spine_03_socket");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapons")
+	FName ShieldSocket = TEXT("shield_socket");
+
+	// ========== SOCKETS DE EFECTOS ==========
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Effects")
+	FName HeadSocket = TEXT("head_socket");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Effects")
+	FName ChestSocket = TEXT("spine_02_socket");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Effects")
+	FName HitEffectSocket = TEXT("pelvis");
+
+	// ========== SOCKETS DE AUDIO ==========
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio")
+	FName VoiceSocket = TEXT("head");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio")
+	FName FootLeftSocket = TEXT("foot_l");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio")
+	FName FootRightSocket = TEXT("foot_r");
+};
+
+/**
+ * Configuración del sistema de conversación entre enemigos
+ */
+USTRUCT(BlueprintType)
+struct FEnemyConversationConfig
+{
+	GENERATED_BODY()
+
+	// ========== DISTANCIA Y DETECCIÓN ==========
+	
+	// Radio para detectar a otro enemigo para conversar
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Detection")
+	float ConversationDetectionRadius = 200.0f;
+
+	// Distancia mínima para considerar que están "juntos" en un punto
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Detection")
+	float SamePointRadius = 150.0f;
+
+	// Tiempo que deben estar parados juntos antes de empezar conversación
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Detection")
+	float TimeBeforeConversation = 2.0f;
+
+	// ========== DURACIÓN ==========
+	
+	// Duración mínima de la conversación
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Duration")
+	float MinConversationDuration = 5.0f;
+
+	// Duración máxima de la conversación
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Duration")
+	float MaxConversationDuration = 15.0f;
+
+	// Intervalo entre gestos/voces durante la conversación
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Duration")
+	float GestureInterval = 2.0f;
+
+	// ========== PROBABILIDADES ==========
+	
+	// Probabilidad de hacer un gesto durante la conversación
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Behavior", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float ChanceToGesture = 0.4f;
+
+	// Probabilidad de reírse
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Behavior", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float ChanceToLaugh = 0.2f;
+
+	// Probabilidad de asentir
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Behavior", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float ChanceToNod = 0.3f;
+
+	// ========== COMPORTAMIENTO ==========
+	
+	// Si debe mirar al compañero durante la conversación
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Behavior")
+	bool bLookAtPartner = true;
+
+	// Si la conversación puede ser interrumpida por detección del jugador
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Behavior")
+	bool bCanBeInterrupted = true;
+
+	// Cooldown antes de poder tener otra conversación
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Behavior")
+	float ConversationCooldown = 30.0f;
+};
 

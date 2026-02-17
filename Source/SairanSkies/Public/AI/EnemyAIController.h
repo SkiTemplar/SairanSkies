@@ -4,6 +4,8 @@
 
 #include "CoreMinimal.h"
 #include "AIController.h"
+#include "GenericTeamAgentInterface.h"
+#include "Perception/AIPerceptionTypes.h"
 #include "EnemyAIController.generated.h"
 
 class UBehaviorTreeComponent;
@@ -41,6 +43,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "AI")
 	void SetupPerceptionSystem();
 
+	// Perception handler
+	UFUNCTION()
+	void OnTargetPerceptionUpdated(AActor* Actor, FAIStimulus Stimulus);
+
 protected:
 	UPROPERTY()
 	UAISenseConfig_Sight* SightConfig;
@@ -49,4 +55,14 @@ protected:
 	UAISenseConfig_Hearing* HearingConfig;
 
 	void InitializeBlackboardValues();
+
+	// ==================== TEAM SYSTEM ====================
+public:
+	// Team ID for AI Perception affiliation system
+	// 0 = Player, 1 = Enemies, 255 = Neutral
+	static constexpr int32 TEAM_ENEMIES = 1;
+	static constexpr int32 TEAM_PLAYER = 0;
+
+	virtual FGenericTeamId GetGenericTeamId() const override { return FGenericTeamId(TEAM_ENEMIES); }
+	virtual ETeamAttitude::Type GetTeamAttitudeTowards(const AActor& Other) const override;
 };

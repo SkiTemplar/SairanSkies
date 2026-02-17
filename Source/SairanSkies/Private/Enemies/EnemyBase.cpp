@@ -16,6 +16,10 @@
 #include "Kismet/GameplayStatics.h"
 #include "Engine/World.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Components/AudioComponent.h"
+#include "NiagaraFunctionLibrary.h"
+#include "NiagaraComponent.h"
+#include "Sound/SoundBase.h"
 
 // Blackboard Keys
 const FName AEnemyBase::BB_TargetActor = TEXT("TargetActor");
@@ -29,6 +33,8 @@ const FName AEnemyBase::BB_DistanceToTarget = TEXT("DistanceToTarget");
 const FName AEnemyBase::BB_SuspicionLevel = TEXT("SuspicionLevel");
 const FName AEnemyBase::BB_IsAlerted = TEXT("IsAlerted");
 const FName AEnemyBase::BB_IsInPause = TEXT("IsInPause");
+const FName AEnemyBase::BB_IsConversing = TEXT("IsConversing");
+const FName AEnemyBase::BB_ConversationPartner = TEXT("ConversationPartner");
 
 AEnemyBase::AEnemyBase()
 {
@@ -62,6 +68,18 @@ AEnemyBase::AEnemyBase()
 	bIsLookingAround = false;
 	LookAroundTimer = 0.0f;
 	CurrentPatrolSpeedModifier = 1.0f;
+
+	// Initialize conversation system
+	bIsConversing = false;
+	ConversationPartner = nullptr;
+	ConversationTimer = 0.0f;
+	ConversationDuration = 0.0f;
+	GestureTimer = 0.0f;
+	ConversationCooldownTimer = 0.0f;
+	TimeStandingStill = 0.0f;
+	LastPosition = FVector::ZeroVector;
+	bIsInitiator = false;
+	LastVoiceTime = 0.0f;
 }
 
 void AEnemyBase::BeginPlay()
@@ -77,11 +95,11 @@ void AEnemyBase::BeginPlay()
 		BaseMaxWalkSpeed = GetCharacterMovement()->MaxWalkSpeed;
 	}
 
-	// Setup perception delegate
-	if (AIPerceptionComponent)
-	{
-		AIPerceptionComponent->OnTargetPerceptionUpdated.AddDynamic(this, &AEnemyBase::OnPerceptionUpdated);
-	}
+	// Initialize position tracking for conversation
+	LastPosition = GetActorLocation();
+
+	// Note: Perception delegate is now handled by EnemyAIController
+	// The controller calls OnPerceptionUpdated when targets are detected
 
 	// Start in patrol state if we have a patrol path
 	if (PatrolPath)
@@ -114,6 +132,18 @@ void AEnemyBase::Tick(float DeltaTime)
 
 	// Update idle behaviors (random pauses, looking around)
 	UpdateIdleBehavior(DeltaTime);
+
+	// Update conversation system
+	if (bIsConversing)
+	{
+		UpdateConversation(DeltaTime);
+	}
+
+	// Update conversation cooldown
+	if (ConversationCooldownTimer > 0.0f)
+	{
+		ConversationCooldownTimer -= DeltaTime;
+	}
 
 	// Update perception
 	UpdateTargetPerception();
@@ -239,15 +269,21 @@ void AEnemyBase::OnPerceptionUpdated(AActor* Actor, FAIStimulus Stimulus)
 		return;
 	}
 
+	UE_LOG(LogTemp, Log, TEXT("OnPerceptionUpdated: %s detected %s (Sensed: %s)"), 
+		*GetName(), *Actor->GetName(), Stimulus.WasSuccessfullySensed() ? TEXT("YES") : TEXT("NO"));
+
 	// Check if this is the player
 	APawn* PlayerPawn = UGameplayStatics::GetPlayerPawn(GetWorld(), 0);
 	if (Actor != PlayerPawn)
 	{
+		UE_LOG(LogTemp, Log, TEXT("OnPerceptionUpdated: %s is not the player, ignoring"), *Actor->GetName());
 		return;
 	}
 
 	if (Stimulus.WasSuccessfullySensed())
 	{
+		UE_LOG(LogTemp, Warning, TEXT("OnPerceptionUpdated: %s DETECTED PLAYER!"), *GetName());
+		
 		// Determine sense type
 		EEnemySenseType SenseType = EEnemySenseType::None;
 		
@@ -552,6 +588,10 @@ void AEnemyBase::UpdateBlackboard()
 	BlackboardComp->SetValueAsFloat(BB_SuspicionLevel, CurrentSuspicionLevel);
 	BlackboardComp->SetValueAsBool(BB_IsAlerted, bIsAlerted);
 	BlackboardComp->SetValueAsBool(BB_IsInPause, bIsInRandomPause);
+	
+	// Conversation keys
+	BlackboardComp->SetValueAsBool(BB_IsConversing, bIsConversing);
+	BlackboardComp->SetValueAsObject(BB_ConversationPartner, ConversationPartner);
 }
 
 // ==================== SUSPICION SYSTEM ====================
@@ -842,5 +882,398 @@ void AEnemyBase::ClearAnimationLookAt()
 	{
 		AnimInstance->ClearLookAt();
 	}
+}
+
+// ==================== CONVERSATION SYSTEM ====================
+
+bool AEnemyBase::TryStartConversation(AEnemyBase* OtherEnemy)
+{
+	if (!OtherEnemy || OtherEnemy == this)
+	{
+		return false;
+	}
+
+	if (!CanStartConversation() || !OtherEnemy->CanStartConversation())
+	{
+		return false;
+	}
+
+	// Start the conversation
+	bIsConversing = true;
+	bIsInitiator = true;
+	ConversationPartner = OtherEnemy;
+	ConversationDuration = FMath::RandRange(
+		ConversationConfig.MinConversationDuration,
+		ConversationConfig.MaxConversationDuration
+	);
+	ConversationTimer = 0.0f;
+	GestureTimer = 0.0f;
+
+	// Make the other enemy join
+	OtherEnemy->JoinConversation(this);
+
+	// Set state
+	SetEnemyState(EEnemyState::Conversing);
+
+	// Play start animation
+	if (AnimationConfig.ConversationStartMontage)
+	{
+		PlayAttackMontage(AnimationConfig.ConversationStartMontage, 1.0f);
+	}
+
+	// Look at partner
+	if (ConversationConfig.bLookAtPartner)
+	{
+		SetAnimationLookAtTarget(OtherEnemy->GetActorLocation() + FVector(0, 0, 50));
+	}
+
+	// Broadcast event
+	OnConversationStarted.Broadcast(OtherEnemy);
+	OnConversationStartedEvent(OtherEnemy);
+
+	UE_LOG(LogTemp, Log, TEXT("Conversation: %s started conversation with %s for %.1f seconds"), 
+		*GetName(), *OtherEnemy->GetName(), ConversationDuration);
+
+	return true;
+}
+
+void AEnemyBase::JoinConversation(AEnemyBase* Initiator)
+{
+	if (!Initiator)
+	{
+		return;
+	}
+
+	bIsConversing = true;
+	bIsInitiator = false;
+	ConversationPartner = Initiator;
+	ConversationDuration = Initiator->ConversationDuration;
+	ConversationTimer = 0.0f;
+	GestureTimer = ConversationConfig.GestureInterval * 0.5f; // Offset gestures
+
+	// Set state
+	SetEnemyState(EEnemyState::Conversing);
+
+	// Look at partner
+	if (ConversationConfig.bLookAtPartner)
+	{
+		SetAnimationLookAtTarget(Initiator->GetActorLocation() + FVector(0, 0, 50));
+	}
+
+	// Broadcast event
+	OnConversationStarted.Broadcast(Initiator);
+	OnConversationStartedEvent(Initiator);
+}
+
+void AEnemyBase::EndConversation()
+{
+	if (!bIsConversing)
+	{
+		return;
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("Conversation: %s ended conversation"), *GetName());
+
+	// Play end animation
+	if (AnimationConfig.ConversationEndMontage)
+	{
+		PlayAttackMontage(AnimationConfig.ConversationEndMontage, 1.0f);
+	}
+
+	// Clear look at
+	ClearAnimationLookAt();
+
+	// If we're the initiator, also end the partner's conversation
+	if (bIsInitiator && ConversationPartner && ConversationPartner->IsConversing())
+	{
+		ConversationPartner->EndConversation();
+	}
+
+	// Reset state
+	bIsConversing = false;
+	bIsInitiator = false;
+	ConversationPartner = nullptr;
+	ConversationTimer = 0.0f;
+	ConversationCooldownTimer = ConversationConfig.ConversationCooldown;
+	TimeStandingStill = 0.0f;
+
+	// Return to patrol
+	if (PatrolPath)
+	{
+		SetEnemyState(EEnemyState::Patrolling);
+	}
+	else
+	{
+		SetEnemyState(EEnemyState::Idle);
+	}
+
+	// Broadcast event
+	OnConversationEnded.Broadcast();
+	OnConversationEndedEvent();
+}
+
+bool AEnemyBase::CanStartConversation() const
+{
+	// Can't converse if dead, in combat, or already conversing
+	if (CurrentState == EEnemyState::Dead ||
+		CurrentState == EEnemyState::Chasing ||
+		CurrentState == EEnemyState::Attacking ||
+		CurrentState == EEnemyState::Conversing ||
+		bIsConversing)
+	{
+		return false;
+	}
+
+	// Can't converse if on cooldown
+	if (ConversationCooldownTimer > 0.0f)
+	{
+		return false;
+	}
+
+	// Can't converse if has a target
+	if (CurrentTarget != nullptr)
+	{
+		return false;
+	}
+
+	return true;
+}
+
+AEnemyBase* AEnemyBase::FindNearbyEnemyForConversation() const
+{
+	if (!CanStartConversation())
+	{
+		return nullptr;
+	}
+
+	TArray<AActor*> FoundActors;
+	UGameplayStatics::GetAllActorsOfClass(GetWorld(), AEnemyBase::StaticClass(), FoundActors);
+
+	for (AActor* Actor : FoundActors)
+	{
+		AEnemyBase* OtherEnemy = Cast<AEnemyBase>(Actor);
+		if (!OtherEnemy || OtherEnemy == this)
+		{
+			continue;
+		}
+
+		// Check distance
+		float Distance = FVector::Dist(GetActorLocation(), OtherEnemy->GetActorLocation());
+		if (Distance > ConversationConfig.SamePointRadius)
+		{
+			continue;
+		}
+
+		// Check if the other enemy can converse
+		if (!OtherEnemy->CanStartConversation())
+		{
+			continue;
+		}
+
+		// Check if the other enemy is also standing still
+		if (OtherEnemy->GetVelocity().SizeSquared() > 100.0f)
+		{
+			continue;
+		}
+
+		return OtherEnemy;
+	}
+
+	return nullptr;
+}
+
+void AEnemyBase::UpdateConversation(float DeltaTime)
+{
+	if (!bIsConversing)
+	{
+		return;
+	}
+
+	ConversationTimer += DeltaTime;
+	GestureTimer += DeltaTime;
+
+	// Check if conversation should be interrupted by player detection
+	if (ConversationConfig.bCanBeInterrupted && CurrentTarget)
+	{
+		EndConversation();
+		return;
+	}
+
+	// Check if partner is still valid
+	if (!ConversationPartner || !ConversationPartner->IsConversing())
+	{
+		EndConversation();
+		return;
+	}
+
+	// Keep looking at partner
+	if (ConversationConfig.bLookAtPartner && ConversationPartner)
+	{
+		SetAnimationLookAtTarget(ConversationPartner->GetActorLocation() + FVector(0, 0, 50));
+	}
+
+	// Perform periodic gestures (only initiator controls the timing for sync)
+	if (GestureTimer >= ConversationConfig.GestureInterval)
+	{
+		GestureTimer = 0.0f;
+		
+		if (FMath::RandRange(0.0f, 1.0f) < ConversationConfig.ChanceToGesture)
+		{
+			PerformConversationGesture();
+		}
+
+		// Play voice line
+		PlayConversationVoice();
+	}
+
+	// End conversation when time is up (only initiator ends it)
+	if (bIsInitiator && ConversationTimer >= ConversationDuration)
+	{
+		EndConversation();
+	}
+}
+
+void AEnemyBase::PerformConversationGesture()
+{
+	// Play random gesture animation
+	if (AnimationConfig.ConversationGestureMontages.Num() > 0)
+	{
+		int32 Index = FMath::RandRange(0, AnimationConfig.ConversationGestureMontages.Num() - 1);
+		UAnimMontage* Gesture = AnimationConfig.ConversationGestureMontages[Index];
+		if (Gesture)
+		{
+			PlayAttackMontage(Gesture, 1.0f);
+		}
+	}
+
+	OnConversationGesture();
+}
+
+void AEnemyBase::PlayConversationVoice()
+{
+	// Check cooldown
+	float CurrentTime = GetWorld()->GetTimeSeconds();
+	if (CurrentTime - LastVoiceTime < SoundConfig.MinTimeBetweenVoices)
+	{
+		return;
+	}
+
+	// Decide what sound to play
+	float Roll = FMath::RandRange(0.0f, 1.0f);
+	
+	if (Roll < ConversationConfig.ChanceToLaugh && SoundConfig.LaughSounds.Num() > 0)
+	{
+		PlayRandomSound(SoundConfig.LaughSounds, SocketConfig.VoiceSocket);
+	}
+	else if (SoundConfig.ConversationVoices.Num() > 0)
+	{
+		PlayRandomSound(SoundConfig.ConversationVoices, SocketConfig.VoiceSocket);
+	}
+
+	LastVoiceTime = CurrentTime;
+}
+
+// ==================== SOUND/VFX HELPERS ====================
+
+void AEnemyBase::PlayRandomSound(const TArray<USoundBase*>& Sounds, FName SocketName)
+{
+	if (Sounds.Num() == 0)
+	{
+		return;
+	}
+
+	int32 Index = FMath::RandRange(0, Sounds.Num() - 1);
+	USoundBase* Sound = Sounds[Index];
+	
+	if (Sound)
+	{
+		if (SocketName != NAME_None && GetMesh())
+		{
+			UGameplayStatics::PlaySoundAtLocation(
+				this,
+				Sound,
+				GetMesh()->GetSocketLocation(SocketName),
+				SoundConfig.SFXVolume
+			);
+		}
+		else
+		{
+			UGameplayStatics::PlaySoundAtLocation(
+				this,
+				Sound,
+				GetActorLocation(),
+				SoundConfig.SFXVolume
+			);
+		}
+	}
+}
+
+void AEnemyBase::PlayVoice(USoundBase* Sound)
+{
+	if (!Sound)
+	{
+		return;
+	}
+
+	// Check cooldown
+	float CurrentTime = GetWorld()->GetTimeSeconds();
+	if (CurrentTime - LastVoiceTime < SoundConfig.MinTimeBetweenVoices)
+	{
+		return;
+	}
+
+	FVector Location = GetActorLocation();
+	if (GetMesh() && SocketConfig.VoiceSocket != NAME_None)
+	{
+		Location = GetMesh()->GetSocketLocation(SocketConfig.VoiceSocket);
+	}
+
+	UGameplayStatics::PlaySoundAtLocation(
+		this,
+		Sound,
+		Location,
+		SoundConfig.VoiceVolume
+	);
+
+	LastVoiceTime = CurrentTime;
+}
+
+void AEnemyBase::SpawnEffect(UNiagaraSystem* Effect, FName SocketName, FVector Offset)
+{
+	if (!Effect)
+	{
+		return;
+	}
+
+	FVector Location = GetActorLocation() + Offset;
+	FRotator Rotation = GetActorRotation();
+
+	if (SocketName != NAME_None && GetMesh())
+	{
+		Location = GetMesh()->GetSocketLocation(SocketName) + Offset;
+		Rotation = GetMesh()->GetSocketRotation(SocketName);
+	}
+
+	UNiagaraFunctionLibrary::SpawnSystemAtLocation(
+		GetWorld(),
+		Effect,
+		Location,
+		Rotation
+	);
+}
+
+void AEnemyBase::SpawnEffectAtLocation(UNiagaraSystem* Effect, FVector Location, FRotator Rotation)
+{
+	if (!Effect)
+	{
+		return;
+	}
+
+	UNiagaraFunctionLibrary::SpawnSystemAtLocation(
+		GetWorld(),
+		Effect,
+		Location,
+		Rotation
+	);
 }
 

@@ -18,6 +18,8 @@ UBTTask_WaitAtPatrolPoint::UBTTask_WaitAtPatrolPoint()
 	CurrentLookIndex = 0;
 	LookTimer = 0.0f;
 	bIsRotating = false;
+	bCheckedForConversation = false;
+	bInConversation = false;
 }
 
 EBTNodeResult::Type UBTTask_WaitAtPatrolPoint::ExecuteTask(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory)
@@ -49,6 +51,10 @@ EBTNodeResult::Type UBTTask_WaitAtPatrolPoint::ExecuteTask(UBehaviorTreeComponen
 
 	WaitTimer = 0.0f;
 	AIController->StopMovement();
+
+	// Initialize conversation check state
+	bCheckedForConversation = false;
+	bInConversation = false;
 
 	// Initialize look around system - using animation system instead of rotating body
 	OriginalRotation = Enemy->GetActorRotation();
@@ -118,6 +124,53 @@ void UBTTask_WaitAtPatrolPoint::TickTask(UBehaviorTreeComponent& OwnerComp, uint
 	}
 
 	WaitTimer += DeltaSeconds;
+
+	// ========== CONVERSATION SYSTEM ==========
+	// Check if we should look for a conversation partner
+	if (bCheckForConversation && !bCheckedForConversation && !bInConversation)
+	{
+		if (WaitTimer >= TimeBeforeConversationCheck)
+		{
+			bCheckedForConversation = true;
+			
+			// Look for nearby enemy to converse with
+			AEnemyBase* NearbyEnemy = Enemy->FindNearbyEnemyForConversation();
+			if (NearbyEnemy)
+			{
+				// Try to start conversation
+				if (Enemy->TryStartConversation(NearbyEnemy))
+				{
+					bInConversation = true;
+					// Extend wait time to conversation duration
+					TargetWaitTime = Enemy->ConversationConfig.MaxConversationDuration + WaitTimer;
+					
+					UE_LOG(LogTemp, Log, TEXT("WaitAtPatrolPoint: %s starting conversation, extending wait to %.1f seconds"), 
+						*Enemy->GetName(), TargetWaitTime);
+				}
+			}
+		}
+	}
+
+	// If in conversation, check if it ended
+	if (bInConversation && !Enemy->IsConversing())
+	{
+		bInConversation = false;
+		// End the task since conversation is over
+		if (AnimInstance)
+		{
+			AnimInstance->ClearLookAt();
+		}
+		UE_LOG(LogTemp, Log, TEXT("WaitAtPatrolPoint: %s conversation ended, continuing patrol"), *Enemy->GetName());
+		FinishLatentTask(OwnerComp, EBTNodeResult::Succeeded);
+		return;
+	}
+
+	// If in conversation, don't do normal look around behavior
+	if (bInConversation)
+	{
+		// Just wait for conversation to end
+		return;
+	}
 
 	// Handle looking around behavior via animation system (head/torso only)
 	if (bLookAround && CurrentLookIndex < LookAroundCount)

@@ -17,6 +17,8 @@ class UBlackboardComponent;
 class APatrolPath;
 class UEnemyAnimInstance;
 class UAnimMontage;
+class UNiagaraSystem;
+class USoundBase;
 
 UCLASS(Abstract)
 class SAIRANSKIES_API AEnemyBase : public ACharacter
@@ -50,6 +52,26 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|Behavior")
 	FEnemyBehaviorConfig BehaviorConfig;
+
+	// ==================== SERIALIZABLE ASSETS ====================
+public:
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|Animation")
+	FEnemyAnimationConfig AnimationConfig;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|Sound")
+	FEnemySoundConfig SoundConfig;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|VFX")
+	FEnemyVFXConfig VFXConfig;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|Mesh")
+	FEnemyMeshConfig MeshConfig;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|Sockets")
+	FEnemySocketConfig SocketConfig;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|Conversation")
+	FEnemyConversationConfig ConversationConfig;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|AI")
 	UBehaviorTree* BehaviorTree;
@@ -342,16 +364,95 @@ public:
 	static const FName BB_SuspicionLevel;
 	static const FName BB_IsAlerted;
 	static const FName BB_IsInPause;
+	static const FName BB_IsConversing;
+	static const FName BB_ConversationPartner;
 
 protected:
 	void UpdateBlackboard();
 	float AttackCooldownTimer;
+
+	// ==================== CONVERSATION SYSTEM ====================
+public:
+	UFUNCTION(BlueprintCallable, Category = "Enemy|Conversation")
+	bool TryStartConversation(AEnemyBase* OtherEnemy);
+
+	UFUNCTION(BlueprintCallable, Category = "Enemy|Conversation")
+	void JoinConversation(AEnemyBase* Initiator);
+
+	UFUNCTION(BlueprintCallable, Category = "Enemy|Conversation")
+	void EndConversation();
+
+	UFUNCTION(BlueprintPure, Category = "Enemy|Conversation")
+	bool IsConversing() const { return bIsConversing; }
+
+	UFUNCTION(BlueprintPure, Category = "Enemy|Conversation")
+	AEnemyBase* GetConversationPartner() const { return ConversationPartner; }
+
+	UFUNCTION(BlueprintPure, Category = "Enemy|Conversation")
+	bool CanStartConversation() const;
+
+	UFUNCTION(BlueprintCallable, Category = "Enemy|Conversation")
+	AEnemyBase* FindNearbyEnemyForConversation() const;
+
+protected:
+	void UpdateConversation(float DeltaTime);
+	void PerformConversationGesture();
+	void PlayConversationVoice();
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Enemy|Conversation")
+	bool bIsConversing = false;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Enemy|Conversation")
+	AEnemyBase* ConversationPartner = nullptr;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Enemy|Conversation")
+	float ConversationTimer = 0.0f;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Enemy|Conversation")
+	float ConversationDuration = 0.0f;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Enemy|Conversation")
+	float GestureTimer = 0.0f;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Enemy|Conversation")
+	float ConversationCooldownTimer = 0.0f;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Enemy|Conversation")
+	float TimeStandingStill = 0.0f;
+
+	FVector LastPosition;
+	bool bIsInitiator = false;
+
+	// ==================== SOUND/VFX HELPERS ====================
+public:
+	UFUNCTION(BlueprintCallable, Category = "Enemy|Audio")
+	void PlayRandomSound(const TArray<USoundBase*>& Sounds, FName SocketName = NAME_None);
+
+	UFUNCTION(BlueprintCallable, Category = "Enemy|Audio")
+	void PlayVoice(USoundBase* Sound);
+
+	UFUNCTION(BlueprintCallable, Category = "Enemy|VFX")
+	void SpawnEffect(UNiagaraSystem* Effect, FName SocketName = NAME_None, FVector Offset = FVector::ZeroVector);
+
+	UFUNCTION(BlueprintCallable, Category = "Enemy|VFX")
+	void SpawnEffectAtLocation(UNiagaraSystem* Effect, FVector Location, FRotator Rotation = FRotator::ZeroRotator);
+
+protected:
+	float LastVoiceTime = 0.0f;
 
 	// ==================== VIRTUAL METHODS FOR SUBCLASSES ====================
 protected:
 	virtual void OnStateEnter(EEnemyState NewState);
 	virtual void OnStateExit(EEnemyState OldState);
 	virtual void HandleCombatBehavior(float DeltaTime);
+
+	// ==================== DELEGATES ====================
+public:
+	UPROPERTY(BlueprintAssignable, Category = "Enemy|Events")
+	FOnConversationStarted OnConversationStarted;
+
+	UPROPERTY(BlueprintAssignable, Category = "Enemy|Events")
+	FOnConversationEnded OnConversationEnded;
 
 	// ==================== BLUEPRINT EVENTS ====================
 public:
@@ -374,4 +475,16 @@ public:
 	// Llamado cuando el enemigo muestra confusión (durante investigación)
 	UFUNCTION(BlueprintImplementableEvent, Category = "Enemy|Events")
 	void OnShowConfusion();
+
+	// Llamado cuando empieza una conversación con otro enemigo
+	UFUNCTION(BlueprintImplementableEvent, Category = "Enemy|Events")
+	void OnConversationStartedEvent(AEnemyBase* Partner);
+
+	// Llamado cuando termina una conversación
+	UFUNCTION(BlueprintImplementableEvent, Category = "Enemy|Events")
+	void OnConversationEndedEvent();
+
+	// Llamado cuando hace un gesto durante la conversación
+	UFUNCTION(BlueprintImplementableEvent, Category = "Enemy|Events")
+	void OnConversationGesture();
 };

@@ -84,12 +84,14 @@ void AEnemyAIController::SetupPerceptionSystem()
 	AEnemyBase* Enemy = GetControlledEnemy();
 	if (!Enemy)
 	{
+		UE_LOG(LogTemp, Warning, TEXT("SetupPerceptionSystem: No controlled enemy!"));
 		return;
 	}
 
 	UAIPerceptionComponent* PerceptionComp = GetPerceptionComponent();
 	if (!PerceptionComp)
 	{
+		UE_LOG(LogTemp, Warning, TEXT("SetupPerceptionSystem: No perception component!"));
 		return;
 	}
 
@@ -102,11 +104,15 @@ void AEnemyAIController::SetupPerceptionSystem()
 		SightConfig->SetMaxAge(Enemy->PerceptionConfig.LoseSightTime);
 		SightConfig->AutoSuccessRangeFromLastSeenLocation = Enemy->PerceptionConfig.ProximityRadius;
 		
+		// Detect ALL targets - we filter by team attitude, not affiliation flags
 		SightConfig->DetectionByAffiliation.bDetectEnemies = true;
 		SightConfig->DetectionByAffiliation.bDetectNeutrals = true;
 		SightConfig->DetectionByAffiliation.bDetectFriendlies = false;
 
 		PerceptionComp->ConfigureSense(*SightConfig);
+		
+		UE_LOG(LogTemp, Log, TEXT("SetupPerceptionSystem: Sight configured - Radius: %.1f, Angle: %.1f"), 
+			SightConfig->SightRadius, SightConfig->PeripheralVisionAngleDegrees);
 	}
 
 	HearingConfig = NewObject<UAISenseConfig_Hearing>(this, UAISenseConfig_Hearing::StaticClass(), TEXT("HearingConfig"));
@@ -120,9 +126,36 @@ void AEnemyAIController::SetupPerceptionSystem()
 		HearingConfig->DetectionByAffiliation.bDetectFriendlies = false;
 
 		PerceptionComp->ConfigureSense(*HearingConfig);
+		
+		UE_LOG(LogTemp, Log, TEXT("SetupPerceptionSystem: Hearing configured - Range: %.1f"), 
+			HearingConfig->HearingRange);
 	}
 
 	PerceptionComp->SetDominantSense(UAISense_Sight::StaticClass());
+	
+	// Connect perception delegate
+	PerceptionComp->OnTargetPerceptionUpdated.AddDynamic(this, &AEnemyAIController::OnTargetPerceptionUpdated);
+	
+	// Force perception update
+	PerceptionComp->RequestStimuliListenerUpdate();
+	
+	UE_LOG(LogTemp, Log, TEXT("SetupPerceptionSystem: %s perception system ready"), *Enemy->GetName());
+}
+
+void AEnemyAIController::OnTargetPerceptionUpdated(AActor* Actor, FAIStimulus Stimulus)
+{
+	AEnemyBase* Enemy = GetControlledEnemy();
+	if (!Enemy || !Actor)
+	{
+		return;
+	}
+	
+	UE_LOG(LogTemp, Log, TEXT("AIController OnPerception: %s detected %s (Success: %s)"), 
+		*Enemy->GetName(), *Actor->GetName(), 
+		Stimulus.WasSuccessfullySensed() ? TEXT("YES") : TEXT("NO"));
+	
+	// Forward to Enemy for processing
+	Enemy->OnPerceptionUpdated(Actor, Stimulus);
 }
 
 void AEnemyAIController::InitializeBlackboardValues()
@@ -145,4 +178,51 @@ void AEnemyAIController::InitializeBlackboardValues()
 	Blackboard->SetValueAsFloat(AEnemyBase::BB_SuspicionLevel, 0.0f);
 	Blackboard->SetValueAsBool(AEnemyBase::BB_IsAlerted, false);
 	Blackboard->SetValueAsBool(AEnemyBase::BB_IsInPause, false);
+	
+	// Conversation system
+	Blackboard->SetValueAsBool(AEnemyBase::BB_IsConversing, false);
+	Blackboard->SetValueAsObject(AEnemyBase::BB_ConversationPartner, nullptr);
 }
+
+ETeamAttitude::Type AEnemyAIController::GetTeamAttitudeTowards(const AActor& Other) const
+{
+	// Check if the other actor has a team interface
+	const IGenericTeamAgentInterface* TeamAgent = Cast<const IGenericTeamAgentInterface>(&Other);
+	if (TeamAgent)
+	{
+		FGenericTeamId OtherTeamId = TeamAgent->GetGenericTeamId();
+		
+		// Same team = Friendly
+		if (OtherTeamId == GetGenericTeamId())
+		{
+			return ETeamAttitude::Friendly;
+		}
+		
+		// Player team = Hostile
+		if (OtherTeamId.GetId() == TEAM_PLAYER)
+		{
+			return ETeamAttitude::Hostile;
+		}
+	}
+	
+	// If no team interface, check if it's the player pawn
+	const APawn* OtherPawn = Cast<const APawn>(&Other);
+	if (OtherPawn)
+	{
+		// Check if controlled by player controller
+		if (OtherPawn->IsPlayerControlled())
+		{
+			return ETeamAttitude::Hostile;
+		}
+		
+		// Check if it's another enemy
+		if (Cast<const AEnemyBase>(OtherPawn))
+		{
+			return ETeamAttitude::Friendly;
+		}
+	}
+	
+	// Default: treat as neutral (will be detected if bDetectNeutrals is true)
+	return ETeamAttitude::Neutral;
+}
+

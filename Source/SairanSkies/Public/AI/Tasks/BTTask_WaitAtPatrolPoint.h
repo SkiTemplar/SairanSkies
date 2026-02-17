@@ -49,6 +49,16 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Look Around", meta = (EditCondition = "bLookAround"))
 	float LookAroundRotationSpeed = 60.0f;
 
+	// ========== CONVERSATION SYSTEM ==========
+	
+	// Check for nearby enemies to converse with
+	UPROPERTY(EditAnywhere, Category = "Conversation")
+	bool bCheckForConversation = true;
+
+	// Time standing still before checking for conversation
+	UPROPERTY(EditAnywhere, Category = "Conversation", meta = (EditCondition = "bCheckForConversation"))
+	float TimeBeforeConversationCheck = 1.5f;
+
 private:
 	float WaitTimer;
 	float TargetWaitTime;
@@ -59,4 +69,8 @@ private:
 	int32 CurrentLookIndex;
 	float LookTimer;
 	bool bIsRotating;
+
+	// Conversation state
+	bool bCheckedForConversation;
+	bool bInConversation;
 };
