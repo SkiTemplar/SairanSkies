@@ -11,6 +11,7 @@
 #include "Components/SceneComponent.h"
 #include "Combat/CombatComponent.h"
 #include "Combat/TargetingComponent.h"
+#include "Combat/GrappleComponent.h"
 #include "Weapons/WeaponBase.h"
 
 ASairanCharacter::ASairanCharacter()
@@ -58,6 +59,12 @@ ASairanCharacter::ASairanCharacter()
 	WeaponBlockAttachPoint->SetRelativeLocation(FVector(40.0f, 0.0f, 70.0f)); // In front, higher up
 	WeaponBlockAttachPoint->SetRelativeRotation(FRotator(0.0f, 45.0f, -45.0f)); // Angled for blocking
 
+	// Grapple hand attachment point - grapple hook held in left hand
+	GrappleHandAttachPoint = CreateDefaultSubobject<USceneComponent>(TEXT("GrappleHandAttachPoint"));
+	GrappleHandAttachPoint->SetupAttachment(RootComponent);
+	GrappleHandAttachPoint->SetRelativeLocation(FVector(30.0f, -25.0f, 40.0f)); // Left side, mid height
+	GrappleHandAttachPoint->SetRelativeRotation(FRotator(0.0f, 0.0f, 0.0f)); // Pointing forward
+
 	// Camera boom (third person, over shoulder but a bit farther)
 	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
 	CameraBoom->SetupAttachment(RootComponent);
@@ -79,6 +86,9 @@ ASairanCharacter::ASairanCharacter()
 
 	// Targeting Component
 	TargetingComponent = CreateDefaultSubobject<UTargetingComponent>(TEXT("TargetingComponent"));
+
+	// Grapple Component
+	GrappleComponent = CreateDefaultSubobject<UGrappleComponent>(TEXT("GrappleComponent"));
 
 	// Initial state
 	TargetCameraDistance = DefaultCameraDistance;
@@ -167,6 +177,10 @@ void ASairanCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 		
 		// Switch Weapon
 		EnhancedInputComponent->BindAction(SwitchWeaponAction, ETriggerEvent::Started, this, &ASairanCharacter::SwitchWeapon);
+		
+		// Grapple (hold L2/F to aim, release to fire)
+		EnhancedInputComponent->BindAction(GrappleAction, ETriggerEvent::Started, this, &ASairanCharacter::GrappleStart);
+		EnhancedInputComponent->BindAction(GrappleAction, ETriggerEvent::Completed, this, &ASairanCharacter::GrappleRelease);
 	}
 }
 
@@ -464,6 +478,28 @@ void ASairanCharacter::UpdateGravityScale()
 	{
 		// Rising or grounded - normal gravity
 		GetCharacterMovement()->GravityScale = NormalGravityScale;
+	}
+}
+
+// ========== GRAPPLE INPUT HANDLERS ==========
+
+void ASairanCharacter::GrappleStart(const FInputActionValue& Value)
+{
+	if (GrappleComponent && CanPerformAction())
+	{
+		GrappleComponent->StartAiming();
+	}
+}
+
+void ASairanCharacter::GrappleRelease(const FInputActionValue& Value)
+{
+	if (GrappleComponent)
+	{
+		if (GrappleComponent->IsAiming())
+		{
+			// When releasing the button while aiming, fire the grapple
+			GrappleComponent->FireGrapple();
+		}
 	}
 }
 

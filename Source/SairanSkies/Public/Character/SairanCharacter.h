@@ -13,6 +13,7 @@ class UInputMappingContext;
 class UInputAction;
 class UCombatComponent;
 class UTargetingComponent;
+class UGrappleComponent;
 class AWeaponBase;
 class USceneComponent;
 
@@ -58,6 +59,9 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
 	UTargetingComponent* TargetingComponent;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
+	UGrappleComponent* GrappleComponent;
+
 
 	// ========== WEAPON ATTACH POINTS ==========
 	/** Attachment point for weapon when held in hand */
@@ -71,6 +75,10 @@ public:
 	/** Attachment point for weapon when in blocking stance */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Weapon|AttachPoints")
 	USceneComponent* WeaponBlockAttachPoint;
+
+	/** Attachment point for grapple hook in left hand */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Grapple|AttachPoints")
+	USceneComponent* GrappleHandAttachPoint;
 
 	// ========== INPUT ACTIONS ==========
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
@@ -102,6 +110,9 @@ public:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	UInputAction* SwitchWeaponAction;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	UInputAction* GrappleAction;
 
 	// ========== MOVEMENT SETTINGS ==========
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Movement")
@@ -209,6 +220,8 @@ protected:
 	void ParryStart(const FInputActionValue& Value);
 	void ParryRelease(const FInputActionValue& Value);
 	void SwitchWeapon(const FInputActionValue& Value);
+	void GrappleStart(const FInputActionValue& Value);
+	void GrappleRelease(const FInputActionValue& Value);
 
 private:
 	void UpdateCameraDistance(float DeltaTime);

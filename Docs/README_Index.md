@@ -42,6 +42,21 @@
    - Patrón de errores comunes
    - Patrones de implementación
 
+### 5. **GrappleSystem_Setup.md** (Sistema de Gancho)
+   - Controles de PC y mando
+   - Configuración de Input Action
+   - Parámetros configurables del gancho
+   - Flujo de la mecánica (Idle → Aiming → Pulling → Releasing)
+   - Eventos Blueprint disponibles
+   - Cálculo del punto medio
+   - Troubleshooting
+
+### 6. **HitDetection_Changes.md** (Sistema de Detección de Hits)
+   - Cambios del sistema de detección
+   - Flujo de detección con arma
+   - Configuración del HitCollision
+   - Problemas resueltos
+
 ---
 
 ## 🎯 Las 10 Tareas del Behavior Tree

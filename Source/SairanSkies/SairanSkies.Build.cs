@@ -18,7 +18,10 @@ public class SairanSkies : ModuleRules
 			"Niagara",
 			"AIModule",
 			"GameplayTasks",
-			"NavigationSystem"
+			"NavigationSystem",
+			"UMG",
+			"Slate",
+			"SlateCore"
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[] {  });
