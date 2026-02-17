@@ -102,7 +102,7 @@ void UBTTask_WaitAtPatrolPoint::TickTask(UBehaviorTreeComponent& OwnerComp, uint
 	UEnemyAnimInstance* AnimInstance = Cast<UEnemyAnimInstance>(Enemy->GetMesh()->GetAnimInstance());
 
 	// Interrupt if target detected
-	if (Enemy->GetCurrentTarget() || Enemy->IsAlerted())
+	if (Enemy->GetCurrentTarget())
 	{
 		// Clear look at
 		if (AnimInstance)
@@ -113,10 +113,6 @@ void UBTTask_WaitAtPatrolPoint::TickTask(UBehaviorTreeComponent& OwnerComp, uint
 		if (Enemy->GetCurrentTarget())
 		{
 			Enemy->SetEnemyState(EEnemyState::Chasing);
-		}
-		else if (Enemy->IsAlerted())
-		{
-			Enemy->SetEnemyState(EEnemyState::Investigating);
 		}
 		
 		FinishLatentTask(OwnerComp, EBTNodeResult::Succeeded);

@@ -3,11 +3,8 @@
 #include "Enemies/EnemyBase.h"
 #include "AI/EnemyAIController.h"
 #include "Navigation/PatrolPath.h"
-#include "Animation/EnemyAnimInstance.h"
 
 #include "Perception/AIPerceptionComponent.h"
-#include "Perception/AISenseConfig_Sight.h"
-#include "Perception/AISenseConfig_Hearing.h"
 #include "Perception/AISense_Sight.h"
 #include "Perception/AISense_Hearing.h"
 #include "BehaviorTree/BlackboardComponent.h"
@@ -15,10 +12,7 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "Engine/World.h"
-#include "Components/SkeletalMeshComponent.h"
-#include "Components/AudioComponent.h"
 #include "NiagaraFunctionLibrary.h"
-#include "NiagaraComponent.h"
 #include "Sound/SoundBase.h"
 
 // Blackboard Keys
@@ -27,81 +21,67 @@ const FName AEnemyBase::BB_TargetLocation = TEXT("TargetLocation");
 const FName AEnemyBase::BB_EnemyState = TEXT("EnemyState");
 const FName AEnemyBase::BB_CanSeeTarget = TEXT("CanSeeTarget");
 const FName AEnemyBase::BB_PatrolIndex = TEXT("PatrolIndex");
-const FName AEnemyBase::BB_ShouldTaunt = TEXT("ShouldTaunt");
-const FName AEnemyBase::BB_NearbyAllies = TEXT("NearbyAllies");
 const FName AEnemyBase::BB_DistanceToTarget = TEXT("DistanceToTarget");
-const FName AEnemyBase::BB_SuspicionLevel = TEXT("SuspicionLevel");
-const FName AEnemyBase::BB_IsAlerted = TEXT("IsAlerted");
+const FName AEnemyBase::BB_CanAttack = TEXT("CanAttack");
 const FName AEnemyBase::BB_IsInPause = TEXT("IsInPause");
 const FName AEnemyBase::BB_IsConversing = TEXT("IsConversing");
-const FName AEnemyBase::BB_ConversationPartner = TEXT("ConversationPartner");
+
+// Static attacker tracking
+TArray<AEnemyBase*> AEnemyBase::ActiveAttackers;
 
 AEnemyBase::AEnemyBase()
 {
 	PrimaryActorTick.bCanEverTick = true;
 
-	// Create AI Perception Component
-	AIPerceptionComponent = CreateDefaultSubobject<UAIPerceptionComponent>(TEXT("AIPerceptionComponent"));
+	// UPROPERTY defaults
+	BehaviorTree = nullptr;
+	PatrolPath = nullptr;
 
-	// Initialize state
 	CurrentState = EEnemyState::Idle;
 	CurrentTarget = nullptr;
 	LastKnownTargetLocation = FVector::ZeroVector;
 	CurrentHealth = MaxHealth;
 	bCanAttack = true;
 	TimeSinceLastSawTarget = 0.0f;
-	NearbyAlliesCount = 0;
 	AttackCooldownTimer = 0.0f;
 	BaseMaxWalkSpeed = 600.0f;
-
-	// Initialize suspicion system
-	CurrentSuspicionLevel = 0.0f;
-	bIsAlerted = false;
-	ReactionTimer = 0.0f;
-	bIsProcessingDetection = false;
-	SuspiciousActor = nullptr;
-
-	// Initialize idle behavior
+	
+	// Strafe
+	bIsStrafing = false;
+	StrafeDirection = 1.0f;
+	StrafeTimer = 0.0f;
+	bIsActiveAttacker = false;
+	
+	// Natural behavior
 	bIsInRandomPause = false;
 	RandomPauseTimer = 0.0f;
 	RandomPauseDuration = 0.0f;
 	bIsLookingAround = false;
 	LookAroundTimer = 0.0f;
-	CurrentPatrolSpeedModifier = 1.0f;
-
-	// Initialize conversation system
-	bIsConversing = false;
+	OriginalRotation = FRotator::ZeroRotator;
+	TargetLookRotation = FRotator::ZeroRotator;
+	
+	// Conversation
 	ConversationPartner = nullptr;
 	ConversationTimer = 0.0f;
 	ConversationDuration = 0.0f;
 	GestureTimer = 0.0f;
 	ConversationCooldownTimer = 0.0f;
-	TimeStandingStill = 0.0f;
-	LastPosition = FVector::ZeroVector;
-	bIsInitiator = false;
-	LastVoiceTime = 0.0f;
+	TimeWaitingAtPoint = 0.0f;
+	bIsConversationInitiator = false;
 }
 
 void AEnemyBase::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// Initialize health
 	CurrentHealth = MaxHealth;
 
-	// Store base movement speed
 	if (GetCharacterMovement())
 	{
 		BaseMaxWalkSpeed = GetCharacterMovement()->MaxWalkSpeed;
 	}
 
-	// Initialize position tracking for conversation
-	LastPosition = GetActorLocation();
-
-	// Note: Perception delegate is now handled by EnemyAIController
-	// The controller calls OnPerceptionUpdated when targets are detected
-
-	// Start in patrol state if we have a patrol path
 	if (PatrolPath)
 	{
 		SetEnemyState(EEnemyState::Patrolling);
@@ -117,7 +97,7 @@ void AEnemyBase::Tick(float DeltaTime)
 		return;
 	}
 
-	// Update attack cooldown
+	// Update cooldowns
 	if (!bCanAttack)
 	{
 		AttackCooldownTimer -= DeltaTime;
@@ -127,35 +107,71 @@ void AEnemyBase::Tick(float DeltaTime)
 		}
 	}
 
-	// Update suspicion system (AAA-style gradual awareness)
-	UpdateSuspicionSystem(DeltaTime);
-
-	// Update idle behaviors (random pauses, looking around)
-	UpdateIdleBehavior(DeltaTime);
-
-	// Update conversation system
-	if (bIsConversing)
-	{
-		UpdateConversation(DeltaTime);
-	}
-
-	// Update conversation cooldown
 	if (ConversationCooldownTimer > 0.0f)
 	{
 		ConversationCooldownTimer -= DeltaTime;
 	}
 
-	// Update perception
-	UpdateTargetPerception();
+	// Update strafe
+	if (bIsStrafing)
+	{
+		UpdateStrafe(DeltaTime);
+	}
 
-	// Update nearby allies count periodically
-	UpdateNearbyAlliesCount();
+	// Update natural behaviors
+	if (bIsInRandomPause)
+	{
+		UpdateRandomPause(DeltaTime);
+	}
 
-	// Handle combat behavior
-	HandleCombatBehavior(DeltaTime);
+	if (bIsLookingAround)
+	{
+		UpdateLookAround(DeltaTime);
+	}
 
-	// Update blackboard
-	UpdateBlackboard();
+	// Update conversation
+	if (CurrentState == EEnemyState::Conversing)
+	{
+		UpdateConversation(DeltaTime);
+	}
+
+	// Track time waiting at point for conversation trigger
+	if (CurrentState == EEnemyState::Idle || bIsInRandomPause)
+	{
+		TimeWaitingAtPoint += DeltaTime;
+		
+		// Try to start conversation if waiting long enough
+		if (TimeWaitingAtPoint >= ConversationConfig.TimeBeforeConversation && CanStartConversation())
+		{
+			AEnemyBase* Partner = FindNearbyEnemyForConversation();
+			if (Partner)
+			{
+				TryStartConversation(Partner);
+			}
+		}
+	}
+	else if (CurrentState != EEnemyState::Conversing)
+	{
+		TimeWaitingAtPoint = 0.0f;
+	}
+
+	// Handle target tracking
+	if (CurrentTarget && IsInCombat())
+	{
+		if (CanSeeTarget())
+		{
+			TimeSinceLastSawTarget = 0.0f;
+			LastKnownTargetLocation = CurrentTarget->GetActorLocation();
+		}
+		else
+		{
+			TimeSinceLastSawTarget += DeltaTime;
+			if (TimeSinceLastSawTarget >= PerceptionConfig.LoseSightTime)
+			{
+				LoseTarget();
+			}
+		}
+	}
 }
 
 // ==================== STATE MANAGEMENT ====================
@@ -169,16 +185,10 @@ void AEnemyBase::SetEnemyState(EEnemyState NewState)
 
 	EEnemyState OldState = CurrentState;
 	
-	// Exit old state
 	OnStateExit(OldState);
-
-	// Change state
 	CurrentState = NewState;
-
-	// Enter new state
 	OnStateEnter(NewState);
 
-	// Broadcast state change
 	OnEnemyStateChanged.Broadcast(OldState, NewState);
 
 	// Update movement speed based on state
@@ -186,14 +196,37 @@ void AEnemyBase::SetEnemyState(EEnemyState NewState)
 	{
 	case EEnemyState::Patrolling:
 	case EEnemyState::Investigating:
-		SetPatrolSpeed();
+		SetPatrolSpeedWithVariation();
 		break;
 	case EEnemyState::Chasing:
 	case EEnemyState::Attacking:
 		SetChaseSpeed();
 		break;
+	case EEnemyState::Conversing:
+	case EEnemyState::Idle:
+		if (GetCharacterMovement())
+		{
+			GetCharacterMovement()->MaxWalkSpeed = 0.0f;
+		}
+		break;
 	default:
 		break;
+	}
+
+	// Cleanup when leaving combat states
+	if (OldState == EEnemyState::Attacking || OldState == EEnemyState::Chasing || OldState == EEnemyState::Positioning)
+	{
+		if (NewState != EEnemyState::Attacking && NewState != EEnemyState::Chasing && NewState != EEnemyState::Positioning)
+		{
+			UnregisterAsAttacker();
+			StopStrafe();
+		}
+	}
+
+	// Cleanup when leaving natural behavior states
+	if (OldState == EEnemyState::Conversing)
+	{
+		EndConversation();
 	}
 }
 
@@ -201,63 +234,61 @@ bool AEnemyBase::IsInCombat() const
 {
 	return CurrentState == EEnemyState::Chasing ||
 		   CurrentState == EEnemyState::Positioning ||
-		   CurrentState == EEnemyState::Attacking ||
-		   CurrentState == EEnemyState::Taunting;
+		   CurrentState == EEnemyState::Attacking;
 }
 
 bool AEnemyBase::CanSeeTarget() const
 {
-	if (!CurrentTarget || !AIPerceptionComponent)
+	if (!CurrentTarget)
 	{
 		return false;
 	}
 
-	FActorPerceptionBlueprintInfo Info;
-	AIPerceptionComponent->GetActorsPerception(CurrentTarget, Info);
-
-	for (const FAIStimulus& Stimulus : Info.LastSensedStimuli)
+	FHitResult HitResult;
+	FVector Start = GetActorLocation() + FVector(0, 0, 50);
+	FVector End = CurrentTarget->GetActorLocation() + FVector(0, 0, 50);
+	
+	FCollisionQueryParams Params;
+	Params.AddIgnoredActor(this);
+	
+	bool bHit = GetWorld()->LineTraceSingleByChannel(HitResult, Start, End, ECC_Visibility, Params);
+	
+	if (!bHit)
 	{
-		if (Stimulus.WasSuccessfullySensed() && Stimulus.Type == UAISense::GetSenseID<UAISense_Sight>())
-		{
-			return true;
-		}
+		return true;
+	}
+	
+	return HitResult.GetActor() == CurrentTarget;
+}
+
+bool AEnemyBase::IsAlerted() const
+{
+	return CurrentTarget != nullptr || IsInCombat();
+}
+
+float AEnemyBase::GetSuspicionLevel() const
+{
+	if (!CurrentTarget)
+	{
+		return 0.0f;
 	}
 
-	return false;
+	float Distance = GetDistanceToTarget();
+	float Radius = PerceptionConfig.SightRadius;
+	
+	// Suspicion increases with proximity
+	float Suspicion = 1.0f - (Distance / Radius);
+	return FMath::Clamp(Suspicion, 0.0f, 1.0f);
 }
 
 void AEnemyBase::OnStateEnter(EEnemyState NewState)
 {
-	// Override in subclasses for specific behavior
+	// Override in subclasses
 }
 
 void AEnemyBase::OnStateExit(EEnemyState OldState)
 {
-	// Override in subclasses for specific behavior
-}
-
-void AEnemyBase::HandleCombatBehavior(float DeltaTime)
-{
-	// Override in subclasses for specific combat behavior
-	if (IsInCombat() && CurrentTarget)
-	{
-		// Update time since last saw target
-		if (CanSeeTarget())
-		{
-			TimeSinceLastSawTarget = 0.0f;
-			LastKnownTargetLocation = CurrentTarget->GetActorLocation();
-		}
-		else
-		{
-			TimeSinceLastSawTarget += DeltaTime;
-
-			// Lose target after timeout
-			if (TimeSinceLastSawTarget >= PerceptionConfig.LoseSightTime)
-			{
-				LoseTarget();
-			}
-		}
-	}
+	// Override in subclasses
 }
 
 // ==================== PERCEPTION ====================
@@ -269,29 +300,24 @@ void AEnemyBase::OnPerceptionUpdated(AActor* Actor, FAIStimulus Stimulus)
 		return;
 	}
 
-	UE_LOG(LogTemp, Log, TEXT("OnPerceptionUpdated: %s detected %s (Sensed: %s)"), 
-		*GetName(), *Actor->GetName(), Stimulus.WasSuccessfullySensed() ? TEXT("YES") : TEXT("NO"));
+	// Interrupt conversation if player detected
+	if (CurrentState == EEnemyState::Conversing && Stimulus.WasSuccessfullySensed())
+	{
+		EndConversation();
+	}
 
-	// Check if this is the player
 	APawn* PlayerPawn = UGameplayStatics::GetPlayerPawn(GetWorld(), 0);
 	if (Actor != PlayerPawn)
 	{
-		UE_LOG(LogTemp, Log, TEXT("OnPerceptionUpdated: %s is not the player, ignoring"), *Actor->GetName());
 		return;
 	}
 
 	if (Stimulus.WasSuccessfullySensed())
 	{
-		UE_LOG(LogTemp, Warning, TEXT("OnPerceptionUpdated: %s DETECTED PLAYER!"), *GetName());
+		UE_LOG(LogTemp, Log, TEXT("%s DETECTED PLAYER!"), *GetName());
 		
-		// Determine sense type
-		EEnemySenseType SenseType = EEnemySenseType::None;
-		
-		if (Stimulus.Type == UAISense::GetSenseID<UAISense_Sight>())
-		{
-			SenseType = EEnemySenseType::Sight;
-		}
-		else if (Stimulus.Type == UAISense::GetSenseID<UAISense_Hearing>())
+		EEnemySenseType SenseType = EEnemySenseType::Sight;
+		if (Stimulus.Type == UAISense::GetSenseID<UAISense_Hearing>())
 		{
 			SenseType = EEnemySenseType::Hearing;
 		}
@@ -300,30 +326,15 @@ void AEnemyBase::OnPerceptionUpdated(AActor* Actor, FAIStimulus Stimulus)
 	}
 }
 
-void AEnemyBase::UpdateTargetPerception()
-{
-	if (!CurrentTarget)
-	{
-		return;
-	}
-
-	// Check proximity
-	float DistanceToTarget = GetDistanceToTarget();
-	if (DistanceToTarget <= PerceptionConfig.ProximityRadius)
-	{
-		TimeSinceLastSawTarget = 0.0f;
-		LastKnownTargetLocation = CurrentTarget->GetActorLocation();
-	}
-}
-
 void AEnemyBase::LoseTarget()
 {
 	if (CurrentTarget)
 	{
+		UnregisterAsAttacker();
+		StopStrafe();
 		CurrentTarget = nullptr;
 		OnPlayerLost.Broadcast();
 
-		// Transition to investigation state
 		if (LastKnownTargetLocation != FVector::ZeroVector)
 		{
 			SetEnemyState(EEnemyState::Investigating);
@@ -342,6 +353,14 @@ void AEnemyBase::SetTarget(AActor* NewTarget, EEnemySenseType SenseType)
 		return;
 	}
 
+	// End any natural behaviors
+	EndRandomPause();
+	StopLookAround();
+	if (CurrentState == EEnemyState::Conversing)
+	{
+		EndConversation();
+	}
+
 	bool bNewTarget = (CurrentTarget != NewTarget);
 	CurrentTarget = NewTarget;
 	LastKnownTargetLocation = NewTarget->GetActorLocation();
@@ -349,13 +368,9 @@ void AEnemyBase::SetTarget(AActor* NewTarget, EEnemySenseType SenseType)
 
 	if (bNewTarget)
 	{
-		// Alert nearby allies
 		AlertNearbyAllies(NewTarget);
-
-		// Broadcast detection
 		OnPlayerDetected.Broadcast(NewTarget, SenseType);
-
-		// Transition to chasing state
+		PlayRandomSound(SoundConfig.AlertSounds);
 		SetEnemyState(EEnemyState::Chasing);
 	}
 }
@@ -364,7 +379,7 @@ void AEnemyBase::SetTarget(AActor* NewTarget, EEnemySenseType SenseType)
 
 void AEnemyBase::Attack()
 {
-	if (!CanAttack() || !CurrentTarget)
+	if (!CanAttackNow() || !CurrentTarget)
 	{
 		return;
 	}
@@ -373,8 +388,8 @@ void AEnemyBase::Attack()
 	AttackCooldownTimer = CombatConfig.AttackCooldown;
 
 	SetEnemyState(EEnemyState::Attacking);
+	PlayRandomSound(SoundConfig.AttackSounds);
 
-	// Apply damage to target (override in subclasses for specific damage behavior)
 	UGameplayStatics::ApplyDamage(
 		CurrentTarget,
 		CombatConfig.BaseDamage,
@@ -393,13 +408,15 @@ void AEnemyBase::TakeDamageFromSource(float DamageAmount, AActor* DamageSource, 
 
 	CurrentHealth -= DamageAmount;
 
-	// If we don't have a target and we got damaged, set the damage source as target
+	PlayHitReaction();
+	PlayRandomSound(SoundConfig.PainSounds);
+	SpawnHitEffect(GetActorLocation());
+
 	if (!CurrentTarget && DamageSource)
 	{
 		SetTarget(DamageSource, EEnemySenseType::Damage);
 	}
 
-	// Check for death
 	if (CurrentHealth <= 0.0f)
 	{
 		Die(InstigatorController);
@@ -413,13 +430,13 @@ void AEnemyBase::Die(AController* InstigatorController)
 		return;
 	}
 
+	UnregisterAsAttacker();
 	SetEnemyState(EEnemyState::Dead);
 	CurrentHealth = 0.0f;
 
-	// Broadcast death
+	PlayRandomSound(SoundConfig.DeathSounds);
 	OnEnemyDeath.Broadcast(InstigatorController);
 
-	// Disable collision and movement
 	if (GetCharacterMovement())
 	{
 		GetCharacterMovement()->DisableMovement();
@@ -433,7 +450,6 @@ float AEnemyBase::GetDistanceToTarget() const
 	{
 		return MAX_FLT;
 	}
-
 	return FVector::Dist(GetActorLocation(), CurrentTarget->GetActorLocation());
 }
 
@@ -443,9 +459,34 @@ bool AEnemyBase::IsInAttackRange() const
 	return Distance >= CombatConfig.MinAttackDistance && Distance <= CombatConfig.MaxAttackDistance;
 }
 
-bool AEnemyBase::ShouldApproachTarget() const
+bool AEnemyBase::CanAttack() const
 {
-	return GetDistanceToTarget() > CombatConfig.MaxAttackDistance;
+	return bCanAttack && CurrentState != EEnemyState::Dead;
+}
+
+void AEnemyBase::PerformTaunt()
+{
+	// Base implementation - subclasses can override
+	// This is called when the enemy wants to taunt
+	SetEnemyState(EEnemyState::Taunting);
+}
+
+bool AEnemyBase::ShouldTaunt() const
+{
+	// Base implementation - subclasses can override
+	// By default, enemies don't taunt
+	return false;
+}
+
+bool AEnemyBase::HasEnoughAlliesForAggression() const
+{
+	return NearbyAlliesCount >= CombatConfig.MinAlliesForAggression;
+}
+
+void AEnemyBase::HandleCombatBehavior(float DeltaTime)
+{
+	// Base implementation - subclasses can override
+	// This is called during combat to handle special behaviors
 }
 
 // ==================== ALLY COORDINATION ====================
@@ -457,12 +498,19 @@ void AEnemyBase::AlertNearbyAllies(AActor* Target)
 		return;
 	}
 
-	TArray<AEnemyBase*> Allies = GetNearbyAllies();
-	for (AEnemyBase* Ally : Allies)
+	TArray<AActor*> FoundActors;
+	UGameplayStatics::GetAllActorsOfClass(GetWorld(), AEnemyBase::StaticClass(), FoundActors);
+
+	for (AActor* Actor : FoundActors)
 	{
+		AEnemyBase* Ally = Cast<AEnemyBase>(Actor);
 		if (Ally && Ally != this && !Ally->IsDead())
 		{
-			Ally->ReceiveAlertFromAlly(Target, this);
+			float Distance = FVector::Dist(GetActorLocation(), Ally->GetActorLocation());
+			if (Distance <= CombatConfig.AllyDetectionRadius)
+			{
+				Ally->ReceiveAlertFromAlly(Target, this);
+			}
 		}
 	}
 }
@@ -474,316 +522,168 @@ void AEnemyBase::ReceiveAlertFromAlly(AActor* Target, AEnemyBase* AlertingAlly)
 		return;
 	}
 
-	// Only react if not already in combat
 	if (!IsInCombat())
 	{
 		SetTarget(Target, EEnemySenseType::Alert);
 	}
 }
 
-void AEnemyBase::UpdateNearbyAlliesCount()
+int32 AEnemyBase::GetAttackersCount() const
 {
-	NearbyAlliesCount = GetNearbyAllies().Num();
+	return ActiveAttackers.Num();
 }
 
-bool AEnemyBase::HasEnoughAlliesForAggression() const
+bool AEnemyBase::CanJoinAttack() const
 {
-	return NearbyAlliesCount >= CombatConfig.MinAlliesForAggression;
+	return GetAttackersCount() < CombatConfig.MaxSimultaneousAttackers || bIsActiveAttacker;
 }
 
-TArray<AEnemyBase*> AEnemyBase::GetNearbyAllies() const
+void AEnemyBase::RegisterAsAttacker()
 {
-	TArray<AEnemyBase*> Allies;
-
-	TArray<AActor*> FoundActors;
-	UGameplayStatics::GetAllActorsOfClass(GetWorld(), AEnemyBase::StaticClass(), FoundActors);
-
-	for (AActor* Actor : FoundActors)
+	if (!bIsActiveAttacker)
 	{
-		AEnemyBase* Enemy = Cast<AEnemyBase>(Actor);
-		if (Enemy && Enemy != this && !Enemy->IsDead())
-		{
-			float Distance = FVector::Dist(GetActorLocation(), Enemy->GetActorLocation());
-			if (Distance <= CombatConfig.AllyDetectionRadius)
-			{
-				Allies.Add(Enemy);
-			}
-		}
+		bIsActiveAttacker = true;
+		ActiveAttackers.AddUnique(this);
+		UE_LOG(LogTemp, Log, TEXT("%s registered as attacker (%d total)"), *GetName(), ActiveAttackers.Num());
 	}
-
-	return Allies;
 }
 
-// ==================== TAUNTING ====================
-
-void AEnemyBase::PerformTaunt()
+void AEnemyBase::UnregisterAsAttacker()
 {
-	if (CurrentState == EEnemyState::Dead)
+	if (bIsActiveAttacker)
 	{
-		return;
+		bIsActiveAttacker = false;
+		ActiveAttackers.Remove(this);
+		UE_LOG(LogTemp, Log, TEXT("%s unregistered as attacker (%d total)"), *GetName(), ActiveAttackers.Num());
 	}
-
-	SetEnemyState(EEnemyState::Taunting);
-	
-	// Override in subclasses for specific taunt behavior
-}
-
-bool AEnemyBase::ShouldTaunt() const
-{
-	// Taunt when we have allies and are confident
-	return HasEnoughAlliesForAggression() && IsInCombat() && FMath::RandRange(0.0f, 1.0f) < 0.3f;
 }
 
 // ==================== MOVEMENT ====================
+
+void AEnemyBase::SetPatrolSpeed()
+{
+	if (GetCharacterMovement())
+	{
+		GetCharacterMovement()->MaxWalkSpeed = BaseMaxWalkSpeed * PatrolConfig.PatrolSpeedMultiplier;
+	}
+}
+
+void AEnemyBase::SetPatrolSpeedWithVariation()
+{
+	if (GetCharacterMovement())
+	{
+		float Variation = FMath::RandRange(-BehaviorConfig.PatrolSpeedVariation, BehaviorConfig.PatrolSpeedVariation);
+		float FinalMultiplier = PatrolConfig.PatrolSpeedMultiplier * (1.0f + Variation);
+		GetCharacterMovement()->MaxWalkSpeed = BaseMaxWalkSpeed * FinalMultiplier;
+	}
+}
+
+void AEnemyBase::SetChaseSpeed()
+{
+	if (GetCharacterMovement())
+	{
+		GetCharacterMovement()->MaxWalkSpeed = BaseMaxWalkSpeed * PatrolConfig.ChaseSpeedMultiplier;
+	}
+}
 
 void AEnemyBase::SetMovementSpeed(float SpeedMultiplier)
 {
 	if (GetCharacterMovement())
 	{
-		GetCharacterMovement()->MaxWalkSpeed = BaseMaxWalkSpeed * FMath::Clamp(SpeedMultiplier, 0.0f, 2.0f);
+		GetCharacterMovement()->MaxWalkSpeed = BaseMaxWalkSpeed * SpeedMultiplier;
 	}
 }
 
-void AEnemyBase::SetPatrolSpeed()
+void AEnemyBase::StartStrafe(bool bStrafeRight)
 {
-	SetMovementSpeed(PatrolConfig.PatrolSpeedMultiplier);
+	bIsStrafing = true;
+	StrafeDirection = bStrafeRight ? 1.0f : -1.0f;
+	StrafeTimer = BehaviorConfig.StrafeDuration;
 }
 
-void AEnemyBase::SetChaseSpeed()
+void AEnemyBase::StopStrafe()
 {
-	SetMovementSpeed(PatrolConfig.ChaseSpeedMultiplier);
+	bIsStrafing = false;
+	StrafeTimer = 0.0f;
 }
 
-// ==================== BLACKBOARD ====================
-
-void AEnemyBase::UpdateBlackboard()
+void AEnemyBase::UpdateStrafe(float DeltaTime)
 {
-	AAIController* AIController = Cast<AAIController>(GetController());
-	if (!AIController)
+	if (!bIsStrafing || !CurrentTarget)
 	{
 		return;
 	}
 
-	UBlackboardComponent* BlackboardComp = AIController->GetBlackboardComponent();
-	if (!BlackboardComp)
+	StrafeTimer -= DeltaTime;
+	if (StrafeTimer <= 0.0f)
 	{
-		return;
+		// Change strafe direction randomly
+		StrafeDirection = FMath::RandBool() ? 1.0f : -1.0f;
+		StrafeTimer = BehaviorConfig.StrafeDuration;
 	}
 
-	BlackboardComp->SetValueAsObject(BB_TargetActor, CurrentTarget);
+	FVector ToTarget = (CurrentTarget->GetActorLocation() - GetActorLocation()).GetSafeNormal();
+	FVector StrafeDir = FVector::CrossProduct(ToTarget, FVector::UpVector) * StrafeDirection;
 	
-	// Only update TargetLocation if we have a target (don't overwrite patrol points!)
-	if (CurrentTarget)
-	{
-		BlackboardComp->SetValueAsVector(BB_TargetLocation, LastKnownTargetLocation);
-	}
-	
-	BlackboardComp->SetValueAsInt(BB_EnemyState, static_cast<int32>(CurrentState));
-	BlackboardComp->SetValueAsBool(BB_CanSeeTarget, CanSeeTarget());
-	BlackboardComp->SetValueAsBool(BB_ShouldTaunt, ShouldTaunt());
-	BlackboardComp->SetValueAsInt(BB_NearbyAllies, NearbyAlliesCount);
-	BlackboardComp->SetValueAsFloat(BB_DistanceToTarget, GetDistanceToTarget());
-	
-	// New AAA-style awareness keys
-	BlackboardComp->SetValueAsFloat(BB_SuspicionLevel, CurrentSuspicionLevel);
-	BlackboardComp->SetValueAsBool(BB_IsAlerted, bIsAlerted);
-	BlackboardComp->SetValueAsBool(BB_IsInPause, bIsInRandomPause);
-	
-	// Conversation keys
-	BlackboardComp->SetValueAsBool(BB_IsConversing, bIsConversing);
-	BlackboardComp->SetValueAsObject(BB_ConversationPartner, ConversationPartner);
+	AddMovementInput(StrafeDir, BehaviorConfig.StrafeSpeed * DeltaTime / 100.0f);
+
+	FRotator LookAtRotation = ToTarget.Rotation();
+	SetActorRotation(FMath::RInterpTo(GetActorRotation(), LookAtRotation, DeltaTime, 5.0f));
 }
 
-// ==================== SUSPICION SYSTEM ====================
-
-void AEnemyBase::AddSuspicion(float Amount, AActor* Source)
-{
-	float OldLevel = CurrentSuspicionLevel;
-	CurrentSuspicionLevel = FMath::Clamp(CurrentSuspicionLevel + Amount, 0.0f, 1.0f);
-	SuspiciousActor = Source;
-
-	// Fire event if significant change
-	if (FMath::Abs(CurrentSuspicionLevel - OldLevel) > 0.1f)
-	{
-		OnSuspicionChanged(CurrentSuspicionLevel, OldLevel);
-	}
-
-	// Check thresholds
-	if (CurrentSuspicionLevel >= BehaviorConfig.SuspicionThresholdChase && !bIsProcessingDetection)
-	{
-		// Start reaction timer before fully engaging
-		bIsProcessingDetection = true;
-		ReactionTimer = FMath::RandRange(BehaviorConfig.ReactionTimeMin, BehaviorConfig.ReactionTimeMax);
-	}
-	else if (CurrentSuspicionLevel >= BehaviorConfig.SuspicionThresholdInvestigate && !bIsAlerted)
-	{
-		bIsAlerted = true;
-	}
-}
-
-void AEnemyBase::SetFullAlert(AActor* Source)
-{
-	CurrentSuspicionLevel = 1.0f;
-	SuspiciousActor = Source;
-	bIsAlerted = true;
-	bIsProcessingDetection = false;
-	
-	// Immediate reaction (no delay for direct alert)
-	SetTarget(Source, EEnemySenseType::Alert);
-}
-
-void AEnemyBase::UpdateSuspicionSystem(float DeltaTime)
-{
-	// Process detection reaction
-	if (bIsProcessingDetection)
-	{
-		ReactionTimer -= DeltaTime;
-		if (ReactionTimer <= 0.0f)
-		{
-			ProcessDetectionReaction();
-		}
-		return;
-	}
-
-	// Decay suspicion when not seeing anything suspicious
-	if (!CanSeeTarget() && CurrentSuspicionLevel > 0.0f)
-	{
-		float OldLevel = CurrentSuspicionLevel;
-		CurrentSuspicionLevel = FMath::Max(0.0f, CurrentSuspicionLevel - BehaviorConfig.SuspicionDecayRate * DeltaTime);
-		
-		// Reset alert state if suspicion drops low enough
-		if (CurrentSuspicionLevel < BehaviorConfig.SuspicionThresholdInvestigate * 0.5f)
-		{
-			bIsAlerted = false;
-		}
-
-		if (CurrentSuspicionLevel <= 0.0f && OldLevel > 0.0f)
-		{
-			OnSuspicionChanged(0.0f, OldLevel);
-		}
-	}
-	// Build suspicion when seeing the target
-	else if (CanSeeTarget() && CurrentTarget)
-	{
-		AddSuspicion(BehaviorConfig.SuspicionBuildUpRate * DeltaTime, CurrentTarget);
-	}
-}
-
-void AEnemyBase::ProcessDetectionReaction()
-{
-	bIsProcessingDetection = false;
-
-	if (SuspiciousActor && CurrentSuspicionLevel >= BehaviorConfig.SuspicionThresholdChase)
-	{
-		// Full detection - start chasing
-		SetTarget(SuspiciousActor, EEnemySenseType::Sight);
-		SetEnemyState(EEnemyState::Chasing);
-	}
-	else if (CurrentSuspicionLevel >= BehaviorConfig.SuspicionThresholdInvestigate)
-	{
-		// Partial detection - investigate
-		if (SuspiciousActor)
-		{
-			LastKnownTargetLocation = SuspiciousActor->GetActorLocation();
-		}
-		SetEnemyState(EEnemyState::Investigating);
-	}
-}
-
-// ==================== IDLE/NATURAL BEHAVIOR ====================
-
-void AEnemyBase::UpdateIdleBehavior(float DeltaTime)
-{
-	// Only update idle behaviors during patrol/idle states
-	if (CurrentState != EEnemyState::Patrolling && CurrentState != EEnemyState::Idle)
-	{
-		// Reset idle state when not patrolling
-		if (bIsInRandomPause)
-		{
-			bIsInRandomPause = false;
-			OnRandomPauseEnded();
-		}
-		bIsLookingAround = false;
-		return;
-	}
-
-	// Handle random pause
-	if (bIsInRandomPause)
-	{
-		RandomPauseTimer -= DeltaTime;
-		
-		// Look around during pause
-		UpdateLookAround(DeltaTime);
-		
-		if (RandomPauseTimer <= 0.0f)
-		{
-			bIsInRandomPause = false;
-			bIsLookingAround = false;
-			OnRandomPauseEnded();
-		}
-	}
-
-	// Handle looking around even when not paused (at patrol points)
-	if (bIsLookingAround && !bIsInRandomPause)
-	{
-		UpdateLookAround(DeltaTime);
-	}
-}
-
-void AEnemyBase::UpdateLookAround(float DeltaTime)
-{
-	if (!bIsLookingAround)
-	{
-		return;
-	}
-
-	LookAroundTimer -= DeltaTime;
-
-	// Smoothly rotate towards target rotation
-	FRotator CurrentRotation = GetActorRotation();
-	FRotator NewRotation = FMath::RInterpTo(CurrentRotation, LookAroundTargetRotation, DeltaTime, 2.0f);
-	SetActorRotation(FRotator(0.0f, NewRotation.Yaw, 0.0f));
-
-	// Pick new random direction periodically
-	if (LookAroundTimer <= 0.0f)
-	{
-		if (FMath::RandRange(0.0f, 1.0f) < 0.5f)
-		{
-			// Continue looking around
-			float RandomYaw = FMath::RandRange(-BehaviorConfig.MaxLookAroundAngle, BehaviorConfig.MaxLookAroundAngle);
-			LookAroundTargetRotation = GetActorRotation();
-			LookAroundTargetRotation.Yaw += RandomYaw;
-			LookAroundTimer = FMath::RandRange(1.0f, 2.5f);
-		}
-		else
-		{
-			// Stop looking around
-			bIsLookingAround = false;
-		}
-	}
-}
+// ==================== NATURAL BEHAVIOR ====================
 
 void AEnemyBase::StartRandomPause()
 {
-	if (bIsInRandomPause || CurrentState == EEnemyState::Dead)
+	if (bIsInRandomPause || IsInCombat())
 	{
 		return;
 	}
 
 	bIsInRandomPause = true;
-	RandomPauseDuration = FMath::RandRange(BehaviorConfig.MinRandomPauseDuration, BehaviorConfig.MaxRandomPauseDuration);
-	RandomPauseTimer = RandomPauseDuration;
+	RandomPauseDuration = FMath::RandRange(BehaviorConfig.MinPauseDuration, BehaviorConfig.MaxPauseDuration);
+	RandomPauseTimer = 0.0f;
 
-	// Maybe start looking around
-	if (FMath::RandRange(0.0f, 1.0f) < BehaviorConfig.ChanceToLookAround)
+	// Stop movement
+	if (GetCharacterMovement())
 	{
-		StartLookingAround();
+		GetCharacterMovement()->MaxWalkSpeed = 0.0f;
 	}
 
 	OnRandomPauseStarted();
+
+	// Maybe look around during pause
+	if (FMath::FRand() < BehaviorConfig.ChanceToLookAround)
+	{
+		StartLookAround();
+	}
 }
 
-void AEnemyBase::StartLookingAround()
+void AEnemyBase::EndRandomPause()
+{
+	if (!bIsInRandomPause)
+	{
+		return;
+	}
+
+	bIsInRandomPause = false;
+	RandomPauseTimer = 0.0f;
+	StopLookAround();
+
+	SetPatrolSpeedWithVariation();
+	OnRandomPauseEnded();
+}
+
+void AEnemyBase::UpdateRandomPause(float DeltaTime)
+{
+	RandomPauseTimer += DeltaTime;
+	if (RandomPauseTimer >= RandomPauseDuration)
+	{
+		EndRandomPause();
+	}
+}
+
+void AEnemyBase::StartLookAround()
 {
 	if (bIsLookingAround)
 	{
@@ -791,148 +691,132 @@ void AEnemyBase::StartLookingAround()
 	}
 
 	bIsLookingAround = true;
-	LookAroundTimer = FMath::RandRange(1.0f, 2.0f);
+	LookAroundTimer = 0.0f;
+	OriginalRotation = GetActorRotation();
 	
-	// Pick initial random direction
 	float RandomYaw = FMath::RandRange(-BehaviorConfig.MaxLookAroundAngle, BehaviorConfig.MaxLookAroundAngle);
-	LookAroundTargetRotation = GetActorRotation();
-	LookAroundTargetRotation.Yaw += RandomYaw;
+	TargetLookRotation = OriginalRotation;
+	TargetLookRotation.Yaw += RandomYaw;
 
 	OnLookAroundStarted();
+
+	// Play look around montage if available
+	if (AnimationConfig.LookAroundMontage)
+	{
+		PlayAnimMontage(AnimationConfig.LookAroundMontage);
+	}
 }
 
-bool AEnemyBase::ShouldDoRandomPause() const
+void AEnemyBase::StopLookAround()
 {
-	if (CurrentState != EEnemyState::Patrolling || bIsInRandomPause || bIsAlerted)
+	if (!bIsLookingAround)
+	{
+		return;
+	}
+
+	bIsLookingAround = false;
+	LookAroundTimer = 0.0f;
+}
+
+void AEnemyBase::UpdateLookAround(float DeltaTime)
+{
+	LookAroundTimer += DeltaTime;
+
+	float LookDuration = BehaviorConfig.MaxLookAroundAngle / BehaviorConfig.LookAroundSpeed;
+	
+	if (LookAroundTimer < LookDuration)
+	{
+		// Rotate towards target
+		FRotator NewRotation = FMath::RInterpTo(GetActorRotation(), TargetLookRotation, DeltaTime, 2.0f);
+		SetActorRotation(NewRotation);
+	}
+	else if (LookAroundTimer < LookDuration * 2.0f)
+	{
+		// Rotate back
+		FRotator NewRotation = FMath::RInterpTo(GetActorRotation(), OriginalRotation, DeltaTime, 2.0f);
+		SetActorRotation(NewRotation);
+	}
+	else
+	{
+		// Maybe look in another direction
+		if (FMath::FRand() < 0.5f && bIsInRandomPause)
+		{
+			float RandomYaw = FMath::RandRange(-BehaviorConfig.MaxLookAroundAngle, BehaviorConfig.MaxLookAroundAngle);
+			TargetLookRotation = OriginalRotation;
+			TargetLookRotation.Yaw += RandomYaw;
+			LookAroundTimer = 0.0f;
+		}
+		else
+		{
+			StopLookAround();
+		}
+	}
+}
+
+bool AEnemyBase::ShouldRandomPause() const
+{
+	if (IsInCombat() || bIsInRandomPause || CurrentState == EEnemyState::Conversing)
 	{
 		return false;
 	}
-
-	return FMath::RandRange(0.0f, 1.0f) < BehaviorConfig.ChanceToStopDuringPatrol;
-}
-
-float AEnemyBase::GetRandomizedPatrolSpeed() const
-{
-	float BaseSpeed = PatrolConfig.PatrolSpeedMultiplier;
-	float Variation = BehaviorConfig.PatrolSpeedVariation;
-	float RandomModifier = FMath::RandRange(1.0f - Variation, 1.0f + Variation);
-	return BaseSpeed * RandomModifier;
-}
-
-// ==================== ANIMATION ====================
-
-UEnemyAnimInstance* AEnemyBase::GetEnemyAnimInstance() const
-{
-	if (GetMesh())
-	{
-		return Cast<UEnemyAnimInstance>(GetMesh()->GetAnimInstance());
-	}
-	return nullptr;
-}
-
-void AEnemyBase::PlayAttackMontage(UAnimMontage* Montage, float PlayRate)
-{
-	UEnemyAnimInstance* AnimInstance = GetEnemyAnimInstance();
-	if (AnimInstance && Montage)
-	{
-		AnimInstance->PlayActionMontage(Montage, PlayRate);
-	}
-}
-
-void AEnemyBase::PlayTauntMontage(UAnimMontage* Montage, float PlayRate)
-{
-	UEnemyAnimInstance* AnimInstance = GetEnemyAnimInstance();
-	if (AnimInstance && Montage)
-	{
-		AnimInstance->PlayActionMontage(Montage, PlayRate);
-	}
-}
-
-void AEnemyBase::PlayHitReactionMontage(UAnimMontage* Montage, float PlayRate)
-{
-	UEnemyAnimInstance* AnimInstance = GetEnemyAnimInstance();
-	if (AnimInstance && Montage)
-	{
-		AnimInstance->PlayActionMontage(Montage, PlayRate);
-	}
-}
-
-void AEnemyBase::SetAnimationLookAtTarget(FVector WorldLocation)
-{
-	UEnemyAnimInstance* AnimInstance = GetEnemyAnimInstance();
-	if (AnimInstance)
-	{
-		AnimInstance->SetLookAtTarget(WorldLocation);
-	}
-}
-
-void AEnemyBase::SetAnimationLookAtRotation(float Yaw, float Pitch)
-{
-	UEnemyAnimInstance* AnimInstance = GetEnemyAnimInstance();
-	if (AnimInstance)
-	{
-		AnimInstance->SetLookAtRotation(Yaw, Pitch);
-	}
-}
-
-void AEnemyBase::ClearAnimationLookAt()
-{
-	UEnemyAnimInstance* AnimInstance = GetEnemyAnimInstance();
-	if (AnimInstance)
-	{
-		AnimInstance->ClearLookAt();
-	}
+	return FMath::FRand() < BehaviorConfig.ChanceToPauseDuringPatrol;
 }
 
 // ==================== CONVERSATION SYSTEM ====================
 
+bool AEnemyBase::CanStartConversation() const
+{
+	return !IsInCombat() && 
+		   !IsConversing() && 
+		   ConversationCooldownTimer <= 0.0f &&
+		   CurrentState != EEnemyState::Dead;
+}
+
+AEnemyBase* AEnemyBase::FindNearbyEnemyForConversation() const
+{
+	TArray<AActor*> FoundActors;
+	UGameplayStatics::GetAllActorsOfClass(GetWorld(), AEnemyBase::StaticClass(), FoundActors);
+
+	for (AActor* Actor : FoundActors)
+	{
+		AEnemyBase* OtherEnemy = Cast<AEnemyBase>(Actor);
+		if (OtherEnemy && OtherEnemy != this && OtherEnemy->CanStartConversation())
+		{
+			float Distance = FVector::Dist(GetActorLocation(), OtherEnemy->GetActorLocation());
+			if (Distance <= ConversationConfig.ConversationRadius)
+			{
+				// Check if they're also waiting
+				if (OtherEnemy->TimeWaitingAtPoint >= ConversationConfig.TimeBeforeConversation)
+				{
+					return OtherEnemy;
+				}
+			}
+		}
+	}
+
+	return nullptr;
+}
+
 bool AEnemyBase::TryStartConversation(AEnemyBase* OtherEnemy)
 {
-	if (!OtherEnemy || OtherEnemy == this)
+	if (!OtherEnemy || !CanStartConversation() || !OtherEnemy->CanStartConversation())
 	{
 		return false;
 	}
 
-	if (!CanStartConversation() || !OtherEnemy->CanStartConversation())
-	{
-		return false;
-	}
-
-	// Start the conversation
-	bIsConversing = true;
-	bIsInitiator = true;
+	// Start conversation
+	bIsConversationInitiator = true;
 	ConversationPartner = OtherEnemy;
-	ConversationDuration = FMath::RandRange(
-		ConversationConfig.MinConversationDuration,
-		ConversationConfig.MaxConversationDuration
-	);
+	ConversationDuration = FMath::RandRange(ConversationConfig.MinConversationDuration, ConversationConfig.MaxConversationDuration);
 	ConversationTimer = 0.0f;
 	GestureTimer = 0.0f;
 
-	// Make the other enemy join
+	SetEnemyState(EEnemyState::Conversing);
 	OtherEnemy->JoinConversation(this);
 
-	// Set state
-	SetEnemyState(EEnemyState::Conversing);
-
-	// Play start animation
-	if (AnimationConfig.ConversationStartMontage)
-	{
-		PlayAttackMontage(AnimationConfig.ConversationStartMontage, 1.0f);
-	}
-
-	// Look at partner
-	if (ConversationConfig.bLookAtPartner)
-	{
-		SetAnimationLookAtTarget(OtherEnemy->GetActorLocation() + FVector(0, 0, 50));
-	}
-
-	// Broadcast event
 	OnConversationStarted.Broadcast(OtherEnemy);
-	OnConversationStartedEvent(OtherEnemy);
 
-	UE_LOG(LogTemp, Log, TEXT("Conversation: %s started conversation with %s for %.1f seconds"), 
-		*GetName(), *OtherEnemy->GetName(), ConversationDuration);
+	UE_LOG(LogTemp, Log, TEXT("%s started conversation with %s"), *GetName(), *OtherEnemy->GetName());
 
 	return true;
 }
@@ -944,336 +828,153 @@ void AEnemyBase::JoinConversation(AEnemyBase* Initiator)
 		return;
 	}
 
-	bIsConversing = true;
-	bIsInitiator = false;
+	bIsConversationInitiator = false;
 	ConversationPartner = Initiator;
 	ConversationDuration = Initiator->ConversationDuration;
 	ConversationTimer = 0.0f;
-	GestureTimer = ConversationConfig.GestureInterval * 0.5f; // Offset gestures
+	GestureTimer = 0.0f;
 
-	// Set state
 	SetEnemyState(EEnemyState::Conversing);
-
-	// Look at partner
-	if (ConversationConfig.bLookAtPartner)
-	{
-		SetAnimationLookAtTarget(Initiator->GetActorLocation() + FVector(0, 0, 50));
-	}
-
-	// Broadcast event
 	OnConversationStarted.Broadcast(Initiator);
-	OnConversationStartedEvent(Initiator);
 }
 
 void AEnemyBase::EndConversation()
 {
-	if (!bIsConversing)
+	if (ConversationPartner && bIsConversationInitiator)
 	{
-		return;
+		// End partner's conversation too
+		if (ConversationPartner->IsConversing())
+		{
+			ConversationPartner->ConversationPartner = nullptr;
+			ConversationPartner->ConversationCooldownTimer = ConversationConfig.ConversationCooldown;
+			ConversationPartner->SetEnemyState(EEnemyState::Patrolling);
+			ConversationPartner->OnConversationEnded.Broadcast();
+		}
 	}
 
-	UE_LOG(LogTemp, Log, TEXT("Conversation: %s ended conversation"), *GetName());
-
-	// Play end animation
-	if (AnimationConfig.ConversationEndMontage)
-	{
-		PlayAttackMontage(AnimationConfig.ConversationEndMontage, 1.0f);
-	}
-
-	// Clear look at
-	ClearAnimationLookAt();
-
-	// If we're the initiator, also end the partner's conversation
-	if (bIsInitiator && ConversationPartner && ConversationPartner->IsConversing())
-	{
-		ConversationPartner->EndConversation();
-	}
-
-	// Reset state
-	bIsConversing = false;
-	bIsInitiator = false;
 	ConversationPartner = nullptr;
-	ConversationTimer = 0.0f;
 	ConversationCooldownTimer = ConversationConfig.ConversationCooldown;
-	TimeStandingStill = 0.0f;
+	TimeWaitingAtPoint = 0.0f;
 
-	// Return to patrol
-	if (PatrolPath)
+	OnConversationEnded.Broadcast();
+
+	if (CurrentState == EEnemyState::Conversing)
 	{
 		SetEnemyState(EEnemyState::Patrolling);
 	}
-	else
-	{
-		SetEnemyState(EEnemyState::Idle);
-	}
-
-	// Broadcast event
-	OnConversationEnded.Broadcast();
-	OnConversationEndedEvent();
-}
-
-bool AEnemyBase::CanStartConversation() const
-{
-	// Can't converse if dead, in combat, or already conversing
-	if (CurrentState == EEnemyState::Dead ||
-		CurrentState == EEnemyState::Chasing ||
-		CurrentState == EEnemyState::Attacking ||
-		CurrentState == EEnemyState::Conversing ||
-		bIsConversing)
-	{
-		return false;
-	}
-
-	// Can't converse if on cooldown
-	if (ConversationCooldownTimer > 0.0f)
-	{
-		return false;
-	}
-
-	// Can't converse if has a target
-	if (CurrentTarget != nullptr)
-	{
-		return false;
-	}
-
-	return true;
-}
-
-AEnemyBase* AEnemyBase::FindNearbyEnemyForConversation() const
-{
-	if (!CanStartConversation())
-	{
-		return nullptr;
-	}
-
-	TArray<AActor*> FoundActors;
-	UGameplayStatics::GetAllActorsOfClass(GetWorld(), AEnemyBase::StaticClass(), FoundActors);
-
-	for (AActor* Actor : FoundActors)
-	{
-		AEnemyBase* OtherEnemy = Cast<AEnemyBase>(Actor);
-		if (!OtherEnemy || OtherEnemy == this)
-		{
-			continue;
-		}
-
-		// Check distance
-		float Distance = FVector::Dist(GetActorLocation(), OtherEnemy->GetActorLocation());
-		if (Distance > ConversationConfig.SamePointRadius)
-		{
-			continue;
-		}
-
-		// Check if the other enemy can converse
-		if (!OtherEnemy->CanStartConversation())
-		{
-			continue;
-		}
-
-		// Check if the other enemy is also standing still
-		if (OtherEnemy->GetVelocity().SizeSquared() > 100.0f)
-		{
-			continue;
-		}
-
-		return OtherEnemy;
-	}
-
-	return nullptr;
 }
 
 void AEnemyBase::UpdateConversation(float DeltaTime)
 {
-	if (!bIsConversing)
-	{
-		return;
-	}
-
 	ConversationTimer += DeltaTime;
 	GestureTimer += DeltaTime;
 
-	// Check if conversation should be interrupted by player detection
-	if (ConversationConfig.bCanBeInterrupted && CurrentTarget)
+	// Face conversation partner
+	if (ConversationPartner)
 	{
-		EndConversation();
-		return;
+		FVector ToPartner = (ConversationPartner->GetActorLocation() - GetActorLocation()).GetSafeNormal();
+		FRotator LookAtRotation = ToPartner.Rotation();
+		SetActorRotation(FMath::RInterpTo(GetActorRotation(), LookAtRotation, DeltaTime, 3.0f));
 	}
 
-	// Check if partner is still valid
-	if (!ConversationPartner || !ConversationPartner->IsConversing())
-	{
-		EndConversation();
-		return;
-	}
-
-	// Keep looking at partner
-	if (ConversationConfig.bLookAtPartner && ConversationPartner)
-	{
-		SetAnimationLookAtTarget(ConversationPartner->GetActorLocation() + FVector(0, 0, 50));
-	}
-
-	// Perform periodic gestures (only initiator controls the timing for sync)
+	// Perform gestures periodically
 	if (GestureTimer >= ConversationConfig.GestureInterval)
 	{
 		GestureTimer = 0.0f;
-		
-		if (FMath::RandRange(0.0f, 1.0f) < ConversationConfig.ChanceToGesture)
+		if (FMath::FRand() < ConversationConfig.ChanceToGesture)
 		{
 			PerformConversationGesture();
 		}
-
-		// Play voice line
-		PlayConversationVoice();
 	}
 
-	// End conversation when time is up (only initiator ends it)
-	if (bIsInitiator && ConversationTimer >= ConversationDuration)
+	// End conversation when time is up
+	if (ConversationTimer >= ConversationDuration)
 	{
-		EndConversation();
+		if (bIsConversationInitiator)
+		{
+			EndConversation();
+		}
 	}
 }
 
 void AEnemyBase::PerformConversationGesture()
 {
-	// Play random gesture animation
-	if (AnimationConfig.ConversationGestureMontages.Num() > 0)
+	PlayConversationGesture();
+	
+	// Random chance to play conversation sound or laugh
+	if (FMath::FRand() < 0.5f)
 	{
-		int32 Index = FMath::RandRange(0, AnimationConfig.ConversationGestureMontages.Num() - 1);
-		UAnimMontage* Gesture = AnimationConfig.ConversationGestureMontages[Index];
-		if (Gesture)
-		{
-			PlayAttackMontage(Gesture, 1.0f);
-		}
+		PlayRandomSound(SoundConfig.ConversationSounds);
+	}
+	else if (FMath::FRand() < 0.3f)
+	{
+		PlayRandomSound(SoundConfig.LaughSounds);
 	}
 
 	OnConversationGesture();
 }
 
-void AEnemyBase::PlayConversationVoice()
+// ==================== ANIMATION ====================
+
+UAnimMontage* AEnemyBase::GetRandomAttackMontage()
 {
-	// Check cooldown
-	float CurrentTime = GetWorld()->GetTimeSeconds();
-	if (CurrentTime - LastVoiceTime < SoundConfig.MinTimeBetweenVoices)
+	if (AnimationConfig.AttackMontages.Num() == 0)
+	{
+		return nullptr;
+	}
+	int32 Index = FMath::RandRange(0, AnimationConfig.AttackMontages.Num() - 1);
+	return AnimationConfig.AttackMontages[Index];
+}
+
+void AEnemyBase::PlayHitReaction()
+{
+	if (AnimationConfig.HitReactionMontages.Num() == 0)
 	{
 		return;
 	}
-
-	// Decide what sound to play
-	float Roll = FMath::RandRange(0.0f, 1.0f);
-	
-	if (Roll < ConversationConfig.ChanceToLaugh && SoundConfig.LaughSounds.Num() > 0)
+	int32 Index = FMath::RandRange(0, AnimationConfig.HitReactionMontages.Num() - 1);
+	UAnimMontage* Montage = AnimationConfig.HitReactionMontages[Index];
+	if (Montage)
 	{
-		PlayRandomSound(SoundConfig.LaughSounds, SocketConfig.VoiceSocket);
+		PlayAnimMontage(Montage);
 	}
-	else if (SoundConfig.ConversationVoices.Num() > 0)
-	{
-		PlayRandomSound(SoundConfig.ConversationVoices, SocketConfig.VoiceSocket);
-	}
-
-	LastVoiceTime = CurrentTime;
 }
 
-// ==================== SOUND/VFX HELPERS ====================
+void AEnemyBase::PlayConversationGesture()
+{
+	if (AnimationConfig.ConversationGestures.Num() == 0)
+	{
+		return;
+	}
+	int32 Index = FMath::RandRange(0, AnimationConfig.ConversationGestures.Num() - 1);
+	UAnimMontage* Montage = AnimationConfig.ConversationGestures[Index];
+	if (Montage)
+	{
+		PlayAnimMontage(Montage);
+	}
+}
 
-void AEnemyBase::PlayRandomSound(const TArray<USoundBase*>& Sounds, FName SocketName)
+// ==================== SOUND/VFX ====================
+
+void AEnemyBase::PlayRandomSound(const TArray<USoundBase*>& Sounds)
 {
 	if (Sounds.Num() == 0)
 	{
 		return;
 	}
-
 	int32 Index = FMath::RandRange(0, Sounds.Num() - 1);
 	USoundBase* Sound = Sounds[Index];
-	
 	if (Sound)
 	{
-		if (SocketName != NAME_None && GetMesh())
-		{
-			UGameplayStatics::PlaySoundAtLocation(
-				this,
-				Sound,
-				GetMesh()->GetSocketLocation(SocketName),
-				SoundConfig.SFXVolume
-			);
-		}
-		else
-		{
-			UGameplayStatics::PlaySoundAtLocation(
-				this,
-				Sound,
-				GetActorLocation(),
-				SoundConfig.SFXVolume
-			);
-		}
+		UGameplayStatics::PlaySoundAtLocation(this, Sound, GetActorLocation(), SoundConfig.Volume);
 	}
 }
 
-void AEnemyBase::PlayVoice(USoundBase* Sound)
+void AEnemyBase::SpawnHitEffect(FVector Location)
 {
-	if (!Sound)
+	if (VFXConfig.HitEffect)
 	{
-		return;
+		UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), VFXConfig.HitEffect, Location);
 	}
-
-	// Check cooldown
-	float CurrentTime = GetWorld()->GetTimeSeconds();
-	if (CurrentTime - LastVoiceTime < SoundConfig.MinTimeBetweenVoices)
-	{
-		return;
-	}
-
-	FVector Location = GetActorLocation();
-	if (GetMesh() && SocketConfig.VoiceSocket != NAME_None)
-	{
-		Location = GetMesh()->GetSocketLocation(SocketConfig.VoiceSocket);
-	}
-
-	UGameplayStatics::PlaySoundAtLocation(
-		this,
-		Sound,
-		Location,
-		SoundConfig.VoiceVolume
-	);
-
-	LastVoiceTime = CurrentTime;
-}
-
-void AEnemyBase::SpawnEffect(UNiagaraSystem* Effect, FName SocketName, FVector Offset)
-{
-	if (!Effect)
-	{
-		return;
-	}
-
-	FVector Location = GetActorLocation() + Offset;
-	FRotator Rotation = GetActorRotation();
-
-	if (SocketName != NAME_None && GetMesh())
-	{
-		Location = GetMesh()->GetSocketLocation(SocketName) + Offset;
-		Rotation = GetMesh()->GetSocketRotation(SocketName);
-	}
-
-	UNiagaraFunctionLibrary::SpawnSystemAtLocation(
-		GetWorld(),
-		Effect,
-		Location,
-		Rotation
-	);
-}
-
-void AEnemyBase::SpawnEffectAtLocation(UNiagaraSystem* Effect, FVector Location, FRotator Rotation)
-{
-	if (!Effect)
-	{
-		return;
-	}
-
-	UNiagaraFunctionLibrary::SpawnSystemAtLocation(
-		GetWorld(),
-		Effect,
-		Location,
-		Rotation
-	);
 }
 

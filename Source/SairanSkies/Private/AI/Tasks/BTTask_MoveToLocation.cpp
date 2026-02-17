@@ -40,10 +40,14 @@ EBTNodeResult::Type UBTTask_MoveToLocation::ExecuteTask(UBehaviorTreeComponent& 
 
 	FVector TargetLocation = BlackboardComp->GetValueAsVector(AEnemyBase::BB_TargetLocation);
 	
-	// Check if location is valid (not checking IsZero since 0,0,0 could be valid)
-	if (!BlackboardComp->IsVectorValueSet(AEnemyBase::BB_TargetLocation))
+	// Check if location is valid - GetValueAsVector returns ZeroVector if not set
+	// We need to make sure it's not the default unset value
+	// Note: A location of exactly (0,0,0) is unlikely in most levels, but we add a small tolerance
+	bool bLocationIsSet = !TargetLocation.IsNearlyZero(1.0f);
+	
+	if (!bLocationIsSet)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("MoveToLocation: TargetLocation not set in Blackboard"));
+		UE_LOG(LogTemp, Warning, TEXT("MoveToLocation: TargetLocation not set in Blackboard (got %s)"), *TargetLocation.ToString());
 		return EBTNodeResult::Failed;
 	}
 

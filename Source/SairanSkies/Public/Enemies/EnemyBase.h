@@ -9,13 +9,8 @@
 #include "EnemyBase.generated.h"
 
 // Forward declarations
-class UAIPerceptionComponent;
-class UAISenseConfig_Sight;
-class UAISenseConfig_Hearing;
 class UBehaviorTree;
-class UBlackboardComponent;
 class APatrolPath;
-class UEnemyAnimInstance;
 class UAnimMontage;
 class UNiagaraSystem;
 class USoundBase;
@@ -34,11 +29,6 @@ protected:
 public:	
 	virtual void Tick(float DeltaTime) override;
 
-	// ==================== COMPONENTS ====================
-protected:
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AI")
-	UAIPerceptionComponent* AIPerceptionComponent;
-
 	// ==================== CONFIGURATION ====================
 public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|Combat")
@@ -53,7 +43,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|Behavior")
 	FEnemyBehaviorConfig BehaviorConfig;
 
-	// ==================== SERIALIZABLE ASSETS ====================
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|Conversation")
+	FEnemyConversationConfig ConversationConfig;
+
+	// ==================== ASSETS ====================
 public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|Animation")
 	FEnemyAnimationConfig AnimationConfig;
@@ -63,15 +56,6 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|VFX")
 	FEnemyVFXConfig VFXConfig;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|Mesh")
-	FEnemyMeshConfig MeshConfig;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|Sockets")
-	FEnemySocketConfig SocketConfig;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|Conversation")
-	FEnemyConversationConfig ConversationConfig;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|AI")
 	UBehaviorTree* BehaviorTree;
@@ -103,47 +87,7 @@ protected:
 	float TimeSinceLastSawTarget;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Enemy|State")
-	int32 NearbyAlliesCount;
-
-	// ==================== SUSPICION SYSTEM (AAA-style awareness) ====================
-protected:
-	// Nivel de sospecha actual (0 = tranquilo, 1 = alerta máxima)
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Enemy|Awareness")
-	float CurrentSuspicionLevel;
-
-	// Si está en estado de alerta (vio algo sospechoso)
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Enemy|Awareness")
-	bool bIsAlerted;
-
-	// Timer de reacción (simula tiempo de procesamiento)
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Enemy|Awareness")
-	float ReactionTimer;
-
-	// Si está procesando una detección
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Enemy|Awareness")
-	bool bIsProcessingDetection;
-
-	// Actor que causó la sospecha
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Enemy|Awareness")
-	AActor* SuspiciousActor;
-
-	// ==================== IDLE BEHAVIOR STATE ====================
-protected:
-	// Si está en una pausa aleatoria
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Enemy|IdleBehavior")
-	bool bIsInRandomPause;
-
-	// Timer para la pausa actual
-	float RandomPauseTimer;
-	float RandomPauseDuration;
-
-	// Rotación objetivo para mirar alrededor
-	FRotator LookAroundTargetRotation;
-	bool bIsLookingAround;
-	float LookAroundTimer;
-
-	// Velocidad de patrulla modificada actual
-	float CurrentPatrolSpeedModifier;
+	int32 NearbyAlliesCount = 0;
 
 	// ==================== DELEGATES ====================
 public:
@@ -159,6 +103,12 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Enemy|Events")
 	FOnEnemyDeath OnEnemyDeath;
 
+	UPROPERTY(BlueprintAssignable, Category = "Enemy|Events")
+	FOnConversationStarted OnConversationStarted;
+
+	UPROPERTY(BlueprintAssignable, Category = "Enemy|Events")
+	FOnConversationEnded OnConversationEnded;
+
 	// ==================== STATE MANAGEMENT ====================
 public:
 	UFUNCTION(BlueprintCallable, Category = "Enemy|State")
@@ -173,13 +123,16 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Enemy|State")
 	bool CanSeeTarget() const;
 
+	UFUNCTION(BlueprintPure, Category = "Enemy|State")
+	bool IsAlerted() const;
+
+	UFUNCTION(BlueprintPure, Category = "Enemy|State")
+	float GetSuspicionLevel() const;
+
 	// ==================== PERCEPTION ====================
 public:
 	UFUNCTION()
 	void OnPerceptionUpdated(AActor* Actor, FAIStimulus Stimulus);
-
-	UFUNCTION(BlueprintCallable, Category = "Enemy|Perception")
-	void UpdateTargetPerception();
 
 	UFUNCTION(BlueprintCallable, Category = "Enemy|Perception")
 	void LoseTarget();
@@ -205,7 +158,7 @@ public:
 	virtual void Die(AController* InstigatorController);
 
 	UFUNCTION(BlueprintPure, Category = "Enemy|Combat")
-	bool CanAttack() const { return bCanAttack && CurrentState != EEnemyState::Dead; }
+	bool CanAttackNow() const { return bCanAttack && CurrentState != EEnemyState::Dead; }
 
 	UFUNCTION(BlueprintPure, Category = "Enemy|Combat")
 	float GetHealthPercent() const { return MaxHealth > 0 ? CurrentHealth / MaxHealth : 0.0f; }
@@ -220,7 +173,19 @@ public:
 	bool IsInAttackRange() const;
 
 	UFUNCTION(BlueprintPure, Category = "Enemy|Combat")
-	bool ShouldApproachTarget() const;
+	virtual bool CanAttack() const;
+
+	UFUNCTION(BlueprintCallable, Category = "Enemy|Combat")
+	virtual void PerformTaunt();
+
+	UFUNCTION(BlueprintPure, Category = "Enemy|Combat")
+	virtual bool ShouldTaunt() const;
+
+	UFUNCTION(BlueprintPure, Category = "Enemy|Combat")
+	virtual bool HasEnoughAlliesForAggression() const;
+
+	UFUNCTION(BlueprintCallable, Category = "Enemy|Combat")
+	virtual void HandleCombatBehavior(float DeltaTime);
 
 	// ==================== ALLY COORDINATION ====================
 public:
@@ -230,146 +195,92 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Enemy|Coordination")
 	void ReceiveAlertFromAlly(AActor* Target, AEnemyBase* AlertingAlly);
 
-	UFUNCTION(BlueprintCallable, Category = "Enemy|Coordination")
-	void UpdateNearbyAlliesCount();
+	UFUNCTION(BlueprintPure, Category = "Enemy|Coordination")
+	int32 GetAttackersCount() const;
 
 	UFUNCTION(BlueprintPure, Category = "Enemy|Coordination")
-	int32 GetNearbyAlliesCount() const { return NearbyAlliesCount; }
-
-	UFUNCTION(BlueprintPure, Category = "Enemy|Coordination")
-	bool HasEnoughAlliesForAggression() const;
+	bool CanJoinAttack() const;
 
 	UFUNCTION(BlueprintCallable, Category = "Enemy|Coordination")
-	TArray<AEnemyBase*> GetNearbyAllies() const;
+	void RegisterAsAttacker();
 
-	// ==================== TAUNTING ====================
-public:
-	UFUNCTION(BlueprintCallable, Category = "Enemy|Behavior")
-	virtual void PerformTaunt();
-
-	UFUNCTION(BlueprintPure, Category = "Enemy|Behavior")
-	virtual bool ShouldTaunt() const;
-
-	// ==================== SUSPICION SYSTEM ====================
-public:
-	UFUNCTION(BlueprintCallable, Category = "Enemy|Awareness")
-	void AddSuspicion(float Amount, AActor* Source);
-
-	UFUNCTION(BlueprintCallable, Category = "Enemy|Awareness")
-	void SetFullAlert(AActor* Source);
-
-	UFUNCTION(BlueprintPure, Category = "Enemy|Awareness")
-	float GetSuspicionLevel() const { return CurrentSuspicionLevel; }
-
-	UFUNCTION(BlueprintPure, Category = "Enemy|Awareness")
-	bool IsAlerted() const { return bIsAlerted; }
-
-	UFUNCTION(BlueprintPure, Category = "Enemy|Awareness")
-	bool IsProcessingDetection() const { return bIsProcessingDetection; }
-
-protected:
-	void UpdateSuspicionSystem(float DeltaTime);
-	void ProcessDetectionReaction();
-
-	// ==================== IDLE/NATURAL BEHAVIOR ====================
-public:
-	UFUNCTION(BlueprintCallable, Category = "Enemy|IdleBehavior")
-	void StartRandomPause();
-
-	UFUNCTION(BlueprintCallable, Category = "Enemy|IdleBehavior")
-	void StartLookingAround();
-
-	UFUNCTION(BlueprintPure, Category = "Enemy|IdleBehavior")
-	bool IsInRandomPause() const { return bIsInRandomPause; }
-
-	UFUNCTION(BlueprintPure, Category = "Enemy|IdleBehavior")
-	bool IsLookingAround() const { return bIsLookingAround; }
-
-	UFUNCTION(BlueprintCallable, Category = "Enemy|IdleBehavior")
-	bool ShouldDoRandomPause() const;
-
-	UFUNCTION(BlueprintCallable, Category = "Enemy|IdleBehavior")
-	float GetRandomizedPatrolSpeed() const;
-
-protected:
-	void UpdateIdleBehavior(float DeltaTime);
-	void UpdateLookAround(float DeltaTime);
-
-	// ==================== ANIMATION ====================
-public:
-	// Get the enemy's animation instance
-	UFUNCTION(BlueprintPure, Category = "Enemy|Animation")
-	UEnemyAnimInstance* GetEnemyAnimInstance() const;
-
-	// Play an attack montage
-	UFUNCTION(BlueprintCallable, Category = "Enemy|Animation")
-	void PlayAttackMontage(UAnimMontage* Montage, float PlayRate = 1.0f);
-
-	// Play a taunt montage
-	UFUNCTION(BlueprintCallable, Category = "Enemy|Animation")
-	void PlayTauntMontage(UAnimMontage* Montage, float PlayRate = 1.0f);
-
-	// Play a hit reaction montage
-	UFUNCTION(BlueprintCallable, Category = "Enemy|Animation")
-	void PlayHitReactionMontage(UAnimMontage* Montage, float PlayRate = 1.0f);
-
-	// Set where the enemy should look (via animation, not body rotation)
-	UFUNCTION(BlueprintCallable, Category = "Enemy|Animation")
-	void SetAnimationLookAtTarget(FVector WorldLocation);
-
-	// Set look at rotation directly
-	UFUNCTION(BlueprintCallable, Category = "Enemy|Animation")
-	void SetAnimationLookAtRotation(float Yaw, float Pitch);
-
-	// Clear look at animation
-	UFUNCTION(BlueprintCallable, Category = "Enemy|Animation")
-	void ClearAnimationLookAt();
-
-protected:
-	// Animation montages (set in Blueprint)
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|Animation")
-	TArray<UAnimMontage*> AttackMontages;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|Animation")
-	TArray<UAnimMontage*> TauntMontages;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|Animation")
-	TArray<UAnimMontage*> HitReactionMontages;
+	UFUNCTION(BlueprintCallable, Category = "Enemy|Coordination")
+	void UnregisterAsAttacker();
 
 	// ==================== MOVEMENT ====================
 public:
-	UFUNCTION(BlueprintCallable, Category = "Enemy|Movement")
-	void SetMovementSpeed(float SpeedMultiplier);
-
 	UFUNCTION(BlueprintCallable, Category = "Enemy|Movement")
 	void SetPatrolSpeed();
 
 	UFUNCTION(BlueprintCallable, Category = "Enemy|Movement")
 	void SetChaseSpeed();
 
+	UFUNCTION(BlueprintCallable, Category = "Enemy|Movement")
+	void SetMovementSpeed(float SpeedMultiplier);
+
+	UFUNCTION(BlueprintCallable, Category = "Enemy|Movement")
+	void StartStrafe(bool bStrafeRight);
+
+	UFUNCTION(BlueprintCallable, Category = "Enemy|Movement")
+	void StopStrafe();
+
+	UFUNCTION(BlueprintPure, Category = "Enemy|Movement")
+	bool IsStrafing() const { return bIsStrafing; }
+
+	// Velocidad con variación natural
+	UFUNCTION(BlueprintCallable, Category = "Enemy|Movement")
+	void SetPatrolSpeedWithVariation();
+
 protected:
 	UPROPERTY()
 	float BaseMaxWalkSpeed;
 
-	// ==================== BLACKBOARD KEYS ====================
+	bool bIsStrafing = false;
+	float StrafeDirection = 1.0f;
+	float StrafeTimer = 0.0f;
+
+	void UpdateStrafe(float DeltaTime);
+
+	// ==================== NATURAL BEHAVIOR (AAA-style) ====================
 public:
-	static const FName BB_TargetActor;
-	static const FName BB_TargetLocation;
-	static const FName BB_EnemyState;
-	static const FName BB_CanSeeTarget;
-	static const FName BB_PatrolIndex;
-	static const FName BB_ShouldTaunt;
-	static const FName BB_NearbyAllies;
-	static const FName BB_DistanceToTarget;
-	static const FName BB_SuspicionLevel;
-	static const FName BB_IsAlerted;
-	static const FName BB_IsInPause;
-	static const FName BB_IsConversing;
-	static const FName BB_ConversationPartner;
+	// Iniciar pausa aleatoria durante patrulla
+	UFUNCTION(BlueprintCallable, Category = "Enemy|Behavior")
+	void StartRandomPause();
+
+	// Terminar pausa
+	UFUNCTION(BlueprintCallable, Category = "Enemy|Behavior")
+	void EndRandomPause();
+
+	// Empezar a mirar alrededor
+	UFUNCTION(BlueprintCallable, Category = "Enemy|Behavior")
+	void StartLookAround();
+
+	// Parar de mirar alrededor
+	UFUNCTION(BlueprintCallable, Category = "Enemy|Behavior")
+	void StopLookAround();
+
+	UFUNCTION(BlueprintPure, Category = "Enemy|Behavior")
+	bool IsInRandomPause() const { return bIsInRandomPause; }
+
+	UFUNCTION(BlueprintPure, Category = "Enemy|Behavior")
+	bool IsLookingAround() const { return bIsLookingAround; }
+
+	// Decide aleatoriamente si debería pausar
+	UFUNCTION(BlueprintPure, Category = "Enemy|Behavior")
+	bool ShouldRandomPause() const;
 
 protected:
-	void UpdateBlackboard();
-	float AttackCooldownTimer;
+	bool bIsInRandomPause = false;
+	float RandomPauseTimer = 0.0f;
+	float RandomPauseDuration = 0.0f;
+
+	bool bIsLookingAround = false;
+	float LookAroundTimer = 0.0f;
+	FRotator OriginalRotation;
+	FRotator TargetLookRotation;
+
+	void UpdateRandomPause(float DeltaTime);
+	void UpdateLookAround(float DeltaTime);
 
 	// ==================== CONVERSATION SYSTEM ====================
 public:
@@ -383,7 +294,7 @@ public:
 	void EndConversation();
 
 	UFUNCTION(BlueprintPure, Category = "Enemy|Conversation")
-	bool IsConversing() const { return bIsConversing; }
+	bool IsConversing() const { return CurrentState == EEnemyState::Conversing; }
 
 	UFUNCTION(BlueprintPure, Category = "Enemy|Conversation")
 	AEnemyBase* GetConversationPartner() const { return ConversationPartner; }
@@ -395,96 +306,74 @@ public:
 	AEnemyBase* FindNearbyEnemyForConversation() const;
 
 protected:
-	void UpdateConversation(float DeltaTime);
-	void PerformConversationGesture();
-	void PlayConversationVoice();
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Enemy|Conversation")
-	bool bIsConversing = false;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Enemy|Conversation")
+	UPROPERTY()
 	AEnemyBase* ConversationPartner = nullptr;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Enemy|Conversation")
 	float ConversationTimer = 0.0f;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Enemy|Conversation")
 	float ConversationDuration = 0.0f;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Enemy|Conversation")
 	float GestureTimer = 0.0f;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Enemy|Conversation")
 	float ConversationCooldownTimer = 0.0f;
+	float TimeWaitingAtPoint = 0.0f;
+	bool bIsConversationInitiator = false;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Enemy|Conversation")
-	float TimeStandingStill = 0.0f;
+	void UpdateConversation(float DeltaTime);
+	void PerformConversationGesture();
 
-	FVector LastPosition;
-	bool bIsInitiator = false;
+	// ==================== ANIMATION ====================
+public:
+	UFUNCTION(BlueprintCallable, Category = "Enemy|Animation")
+	UAnimMontage* GetRandomAttackMontage();
 
-	// ==================== SOUND/VFX HELPERS ====================
+	UFUNCTION(BlueprintCallable, Category = "Enemy|Animation")
+	void PlayHitReaction();
+
+	UFUNCTION(BlueprintCallable, Category = "Enemy|Animation")
+	void PlayConversationGesture();
+
+	// ==================== SOUND/VFX ====================
 public:
 	UFUNCTION(BlueprintCallable, Category = "Enemy|Audio")
-	void PlayRandomSound(const TArray<USoundBase*>& Sounds, FName SocketName = NAME_None);
-
-	UFUNCTION(BlueprintCallable, Category = "Enemy|Audio")
-	void PlayVoice(USoundBase* Sound);
+	void PlayRandomSound(const TArray<USoundBase*>& Sounds);
 
 	UFUNCTION(BlueprintCallable, Category = "Enemy|VFX")
-	void SpawnEffect(UNiagaraSystem* Effect, FName SocketName = NAME_None, FVector Offset = FVector::ZeroVector);
-
-	UFUNCTION(BlueprintCallable, Category = "Enemy|VFX")
-	void SpawnEffectAtLocation(UNiagaraSystem* Effect, FVector Location, FRotator Rotation = FRotator::ZeroRotator);
+	void SpawnHitEffect(FVector Location);
 
 protected:
-	float LastVoiceTime = 0.0f;
+	float AttackCooldownTimer;
+
+	// ==================== BLACKBOARD KEYS ====================
+public:
+	static const FName BB_TargetActor;
+	static const FName BB_TargetLocation;
+	static const FName BB_EnemyState;
+	static const FName BB_CanSeeTarget;
+	static const FName BB_PatrolIndex;
+	static const FName BB_DistanceToTarget;
+	static const FName BB_CanAttack;
+	static const FName BB_IsInPause;
+	static const FName BB_IsConversing;
+
+	// ==================== STATIC ATTACKER TRACKING ====================
+protected:
+	static TArray<AEnemyBase*> ActiveAttackers;
+	bool bIsActiveAttacker = false;
 
 	// ==================== VIRTUAL METHODS FOR SUBCLASSES ====================
 protected:
 	virtual void OnStateEnter(EEnemyState NewState);
 	virtual void OnStateExit(EEnemyState OldState);
-	virtual void HandleCombatBehavior(float DeltaTime);
-
-	// ==================== DELEGATES ====================
-public:
-	UPROPERTY(BlueprintAssignable, Category = "Enemy|Events")
-	FOnConversationStarted OnConversationStarted;
-
-	UPROPERTY(BlueprintAssignable, Category = "Enemy|Events")
-	FOnConversationEnded OnConversationEnded;
 
 	// ==================== BLUEPRINT EVENTS ====================
 public:
-	// Llamado cuando el enemigo empieza una pausa aleatoria (para animaciones)
 	UFUNCTION(BlueprintImplementableEvent, Category = "Enemy|Events")
 	void OnRandomPauseStarted();
 
-	// Llamado cuando el enemigo termina una pausa aleatoria
 	UFUNCTION(BlueprintImplementableEvent, Category = "Enemy|Events")
 	void OnRandomPauseEnded();
 
-	// Llamado cuando el enemigo mira alrededor
 	UFUNCTION(BlueprintImplementableEvent, Category = "Enemy|Events")
 	void OnLookAroundStarted();
 
-	// Llamado cuando el nivel de sospecha cambia significativamente
-	UFUNCTION(BlueprintImplementableEvent, Category = "Enemy|Events")
-	void OnSuspicionChanged(float NewLevel, float OldLevel);
-
-	// Llamado cuando el enemigo muestra confusión (durante investigación)
-	UFUNCTION(BlueprintImplementableEvent, Category = "Enemy|Events")
-	void OnShowConfusion();
-
-	// Llamado cuando empieza una conversación con otro enemigo
-	UFUNCTION(BlueprintImplementableEvent, Category = "Enemy|Events")
-	void OnConversationStartedEvent(AEnemyBase* Partner);
-
-	// Llamado cuando termina una conversación
-	UFUNCTION(BlueprintImplementableEvent, Category = "Enemy|Events")
-	void OnConversationEndedEvent();
-
-	// Llamado cuando hace un gesto durante la conversación
 	UFUNCTION(BlueprintImplementableEvent, Category = "Enemy|Events")
 	void OnConversationGesture();
 };

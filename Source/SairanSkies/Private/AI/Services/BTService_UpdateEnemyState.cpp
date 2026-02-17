@@ -34,6 +34,7 @@ void UBTService_UpdateEnemyState::TickNode(UBehaviorTreeComponent& OwnerComp, ui
 		return;
 	}
 
+	// Update target info
 	BlackboardComp->SetValueAsObject(AEnemyBase::BB_TargetActor, Enemy->GetCurrentTarget());
 	
 	// Only update TargetLocation if we have a target (don't overwrite patrol points!)
@@ -42,16 +43,13 @@ void UBTService_UpdateEnemyState::TickNode(UBehaviorTreeComponent& OwnerComp, ui
 		BlackboardComp->SetValueAsVector(AEnemyBase::BB_TargetLocation, Enemy->GetLastKnownTargetLocation());
 	}
 	
+	// Update state values
 	BlackboardComp->SetValueAsInt(AEnemyBase::BB_EnemyState, static_cast<int32>(Enemy->GetEnemyState()));
 	BlackboardComp->SetValueAsBool(AEnemyBase::BB_CanSeeTarget, Enemy->CanSeeTarget());
-	BlackboardComp->SetValueAsBool(AEnemyBase::BB_ShouldTaunt, Enemy->ShouldTaunt());
-	BlackboardComp->SetValueAsInt(AEnemyBase::BB_NearbyAllies, Enemy->GetNearbyAlliesCount());
 	BlackboardComp->SetValueAsFloat(AEnemyBase::BB_DistanceToTarget, Enemy->GetDistanceToTarget());
-	
-	// AAA-style awareness system values
-	BlackboardComp->SetValueAsFloat(AEnemyBase::BB_SuspicionLevel, Enemy->GetSuspicionLevel());
-	BlackboardComp->SetValueAsBool(AEnemyBase::BB_IsAlerted, Enemy->IsAlerted());
+	BlackboardComp->SetValueAsBool(AEnemyBase::BB_CanAttack, Enemy->CanJoinAttack() && Enemy->CanAttackNow());
 	BlackboardComp->SetValueAsBool(AEnemyBase::BB_IsInPause, Enemy->IsInRandomPause());
+	BlackboardComp->SetValueAsBool(AEnemyBase::BB_IsConversing, Enemy->IsConversing());
 }
 
 FString UBTService_UpdateEnemyState::GetStaticDescription() const

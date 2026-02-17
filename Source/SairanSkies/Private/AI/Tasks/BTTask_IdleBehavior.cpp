@@ -32,13 +32,13 @@ EBTNodeResult::Type UBTTask_IdleBehavior::ExecuteTask(UBehaviorTreeComponent& Ow
 	}
 
 	// Don't pause if alerted
-	if (Enemy->IsAlerted())
+	if (Enemy->GetCurrentTarget() != nullptr)
 	{
 		return EBTNodeResult::Succeeded;
 	}
 
 	// Get config values
-	float ChanceToUse = bUseEnemyConfig ? Enemy->BehaviorConfig.ChanceToStopDuringPatrol : PauseChance;
+	float ChanceToUse = bUseEnemyConfig ? Enemy->BehaviorConfig.ChanceToPauseDuringPatrol : PauseChance;
 	
 	// Roll for pause
 	if (FMath::RandRange(0.0f, 1.0f) > ChanceToUse)
@@ -53,8 +53,8 @@ EBTNodeResult::Type UBTTask_IdleBehavior::ExecuteTask(UBehaviorTreeComponent& Ow
 	if (bUseEnemyConfig)
 	{
 		TargetPauseDuration = FMath::RandRange(
-			Enemy->BehaviorConfig.MinRandomPauseDuration,
-			Enemy->BehaviorConfig.MaxRandomPauseDuration
+			Enemy->BehaviorConfig.MinPauseDuration,
+			Enemy->BehaviorConfig.MaxPauseDuration
 		);
 	}
 	else
@@ -70,7 +70,7 @@ EBTNodeResult::Type UBTTask_IdleBehavior::ExecuteTask(UBehaviorTreeComponent& Ow
 	// Start looking around
 	if (bLookAroundDuringPause)
 	{
-		Enemy->StartLookingAround();
+		Enemy->StartLookAround();
 	}
 
 	// Notify enemy
@@ -93,7 +93,7 @@ void UBTTask_IdleBehavior::TickTask(UBehaviorTreeComponent& OwnerComp, uint8* No
 	AEnemyBase* Enemy = AIController ? AIController->GetControlledEnemy() : nullptr;
 
 	// Abort pause if alerted or has target
-	if (Enemy && (Enemy->IsAlerted() || Enemy->GetCurrentTarget()))
+	if (Enemy && (Enemy->GetCurrentTarget() != nullptr))
 	{
 		bIsPausing = false;
 		UE_LOG(LogTemp, Verbose, TEXT("IdleBehavior: %s pause interrupted (alerted)"), *Enemy->GetName());
