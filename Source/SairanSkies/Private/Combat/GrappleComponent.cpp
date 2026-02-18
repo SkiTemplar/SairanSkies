@@ -207,6 +207,10 @@ void UGrappleComponent::FireGrapple()
 		OwnerCharacter->GetCharacterMovement()->bOrientRotationToMovement = bOriginalOrientRotationToMovement;
 		// Disable gravity during pull for clean, direct movement
 		OwnerCharacter->GetCharacterMovement()->GravityScale = 0.0f;
+		
+		// Reset velocity to zero so all grapples start from a clean state
+		// This prevents momentum from affecting the grapple trajectory
+		OwnerCharacter->GetCharacterMovement()->Velocity = FVector::ZeroVector;
 	}
 	OwnerCharacter->bUseControllerRotationYaw = false;
 
