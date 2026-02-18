@@ -36,10 +36,11 @@ void UGrappleComponent::BeginPlay()
 		bOriginalEnableCameraLag = OwnerCharacter->CameraBoom->bEnableCameraLag;
 	}
 
-	// Store original rotation setting
+	// Store original rotation setting and gravity
 	if (OwnerCharacter && OwnerCharacter->GetCharacterMovement())
 	{
 		bOriginalOrientRotationToMovement = OwnerCharacter->GetCharacterMovement()->bOrientRotationToMovement;
+		OriginalGravityScale = OwnerCharacter->GetCharacterMovement()->GravityScale;
 	}
 
 	// Spawn the grapple hook visual actor
@@ -204,6 +205,8 @@ void UGrappleComponent::FireGrapple()
 	if (OwnerCharacter->GetCharacterMovement())
 	{
 		OwnerCharacter->GetCharacterMovement()->bOrientRotationToMovement = bOriginalOrientRotationToMovement;
+		// Disable gravity during pull for clean, direct movement
+		OwnerCharacter->GetCharacterMovement()->GravityScale = 0.0f;
 	}
 	OwnerCharacter->bUseControllerRotationYaw = false;
 
@@ -241,10 +244,11 @@ void UGrappleComponent::CancelGrapple()
 		return;
 	}
 
-	// Restore movement
+	// Restore movement and gravity
 	if (OwnerCharacter && OwnerCharacter->GetCharacterMovement())
 	{
 		OwnerCharacter->GetCharacterMovement()->SetMovementMode(MOVE_Falling);
+		OwnerCharacter->GetCharacterMovement()->GravityScale = OriginalGravityScale;
 	}
 
 	ResetGrapple();
@@ -304,6 +308,12 @@ void UGrappleComponent::UpdatePulling(float DeltaTime)
 	{
 		// Release - let physics take over naturally
 		SetState(EGrappleState::Releasing);
+		
+		// Restore gravity so physics takes over naturally
+		if (OwnerCharacter->GetCharacterMovement())
+		{
+			OwnerCharacter->GetCharacterMovement()->GravityScale = OriginalGravityScale;
+		}
 		
 		// Unlock camera (player can control again)
 		UnlockCamera();
@@ -467,12 +477,14 @@ void UGrappleComponent::ResetGrapple()
 	bIsDampeningVelocity = false;
 	DampeningTimeRemaining = 0.0f;
 
-	// Restore character rotation behavior
+	// Restore character rotation behavior and gravity
 	if (OwnerCharacter)
 	{
 		if (OwnerCharacter->GetCharacterMovement())
 		{
 			OwnerCharacter->GetCharacterMovement()->bOrientRotationToMovement = bOriginalOrientRotationToMovement;
+			// Ensure gravity is always restored
+			OwnerCharacter->GetCharacterMovement()->GravityScale = OriginalGravityScale;
 		}
 		OwnerCharacter->bUseControllerRotationYaw = false;
 	}

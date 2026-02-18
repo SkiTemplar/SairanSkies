@@ -243,6 +243,9 @@ private:
 	// Character rotation state
 	bool bOriginalOrientRotationToMovement;
 
+	// Gravity state
+	float OriginalGravityScale;
+
 	// Grapple state
 	FVector GrappleStartPoint;
 	FVector GrappleMidpoint;
