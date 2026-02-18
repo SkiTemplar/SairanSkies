@@ -196,6 +196,19 @@ void ASairanCharacter::Move(const FInputActionValue& Value)
 {
 	MovementInput = Value.Get<FVector2D>();
 
+	// Check if sprint toggle should be cancelled (gamepad only)
+	// If input magnitude drops below threshold, cancel sprint toggle
+	if (bSprintToggleActive)
+	{
+		float InputMagnitude = MovementInput.Size();
+		if (InputMagnitude < SprintCancelThreshold)
+		{
+			// Player reduced stick input - cancel sprint toggle
+			bSprintToggleActive = false;
+			StopSprint();
+		}
+	}
+
 	if (Controller != nullptr && !bIsDashing)
 	{
 		// Get rotation without pitch
@@ -247,12 +260,20 @@ void ASairanCharacter::JumpEnd(const FInputActionValue& Value)
 
 void ASairanCharacter::SprintStart(const FInputActionValue& Value)
 {
+	// Toggle sprint on (for gamepad - stays on until input reduces)
+	bSprintToggleActive = true;
 	StartSprint();
 }
 
 void ASairanCharacter::SprintEnd(const FInputActionValue& Value)
 {
-	StopSprint();
+	// Only stop sprint if toggle is not active
+	// This allows PC players to release sprint key normally
+	// But gamepad players keep sprinting until they reduce stick input
+	if (!bSprintToggleActive)
+	{
+		StopSprint();
+	}
 }
 
 void ASairanCharacter::Dash(const FInputActionValue& Value)

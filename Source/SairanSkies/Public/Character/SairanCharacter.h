@@ -133,6 +133,10 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Movement")
 	int32 MaxJumps = 2;
 
+	/** Input magnitude threshold to cancel sprint toggle (gamepad only - 0.8 = 80% of max) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Movement")
+	float SprintCancelThreshold = 0.8f;
+
 	/** Gravity scale when falling (higher = faster fall, more responsive) */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Movement")
 	float FallingGravityScale = 2.5f;
@@ -167,6 +171,10 @@ public:
 
 	UPROPERTY(BlueprintReadOnly, Category = "Movement")
 	bool bIsSprinting = false;
+
+	/** Sprint toggle activated (for gamepad - stays sprinting until input reduces) */
+	UPROPERTY(BlueprintReadOnly, Category = "Movement")
+	bool bSprintToggleActive = false;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Movement")
 	int32 CurrentJumpCount = 0;
