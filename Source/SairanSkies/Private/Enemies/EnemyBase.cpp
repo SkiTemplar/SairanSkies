@@ -14,6 +14,8 @@
 #include "Engine/World.h"
 #include "NiagaraFunctionLibrary.h"
 #include "Sound/SoundBase.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "Components/SkeletalMeshComponent.h"
 
 // Blackboard Keys
 const FName AEnemyBase::BB_TargetActor = TEXT("TargetActor");
@@ -974,7 +976,115 @@ void AEnemyBase::SpawnHitEffect(FVector Location)
 {
 	if (VFXConfig.HitEffect)
 	{
-		UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), VFXConfig.HitEffect, Location);
+		// Spawn attached to the enemy so particles follow them when knocked back
+		UNiagaraFunctionLibrary::SpawnSystemAttached(
+			VFXConfig.HitEffect,
+			GetMesh(),  // Attach to mesh
+			NAME_None,  // No specific socket
+			GetMesh()->GetComponentTransform().InverseTransformPosition(Location),  // Convert to local space
+			FRotator::ZeroRotator,
+			EAttachLocation::KeepRelativeOffset,
+			true  // Auto destroy
+		);
+	}
+}
+
+void AEnemyBase::TakeDamageAtLocation(float DamageAmount, AActor* DamageSource, AController* InstigatorController, const FVector& HitWorldLocation)
+{
+	if (CurrentState == EEnemyState::Dead)
+	{
+		return;
+	}
+
+	CurrentHealth -= DamageAmount;
+
+	PlayHitReaction();
+	PlayRandomSound(SoundConfig.PainSounds);
+	
+	// Spawn hit effect attached to enemy at the hit location
+	SpawnHitEffect(HitWorldLocation);
+	
+	// Start the hit flash (Blasphemous-style visual feedback)
+	StartHitFlash();
+
+	if (!CurrentTarget && DamageSource)
+	{
+		SetTarget(DamageSource, EEnemySenseType::Damage);
+	}
+
+	if (CurrentHealth <= 0.0f)
+	{
+		Die(InstigatorController);
+	}
+}
+
+// ==================== HIT FLASH SYSTEM ====================
+
+void AEnemyBase::StartHitFlash()
+{
+	USkeletalMeshComponent* MeshComp = GetMesh();
+	if (!MeshComp)
+	{
+		return;
+	}
+
+	// Cache original materials if not already done
+	if (!bMaterialsCached)
+	{
+		OriginalMaterials.Empty();
+		for (int32 i = 0; i < MeshComp->GetNumMaterials(); i++)
+		{
+			OriginalMaterials.Add(MeshComp->GetMaterial(i));
+		}
+		bMaterialsCached = true;
+	}
+
+	// Create a simple emissive material for the flash
+	// We'll override all materials with a solid color
+	if (!FlashMaterialInstance)
+	{
+		// Create a simple material that shows a solid color
+		UMaterial* BaseMaterial = LoadObject<UMaterial>(nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
+		if (BaseMaterial)
+		{
+			FlashMaterialInstance = UMaterialInstanceDynamic::Create(BaseMaterial, this);
+			if (FlashMaterialInstance)
+			{
+				// Set emissive color for the flash
+				FlashMaterialInstance->SetVectorParameterValue(FName("Color"), HitFlashColor);
+			}
+		}
+	}
+
+	// Apply flash material to all slots
+	if (FlashMaterialInstance)
+	{
+		for (int32 i = 0; i < MeshComp->GetNumMaterials(); i++)
+		{
+			MeshComp->SetMaterial(i, FlashMaterialInstance);
+		}
+	}
+
+	// Clear any existing timer and set new one to stop the flash
+	GetWorld()->GetTimerManager().ClearTimer(HitFlashTimerHandle);
+	GetWorld()->GetTimerManager().SetTimer(HitFlashTimerHandle, this, &AEnemyBase::StopHitFlash, HitFlashDuration, false);
+}
+
+void AEnemyBase::StopHitFlash()
+{
+	USkeletalMeshComponent* MeshComp = GetMesh();
+	if (!MeshComp || !bMaterialsCached)
+	{
+		return;
+	}
+
+	// Restore original materials
+	for (int32 i = 0; i < OriginalMaterials.Num() && i < MeshComp->GetNumMaterials(); i++)
+	{
+		if (OriginalMaterials[i])
+		{
+			MeshComp->SetMaterial(i, OriginalMaterials[i]);
+		}
 	}
 }
 

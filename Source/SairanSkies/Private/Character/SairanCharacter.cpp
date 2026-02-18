@@ -257,7 +257,8 @@ void ASairanCharacter::SprintEnd(const FInputActionValue& Value)
 
 void ASairanCharacter::Dash(const FInputActionValue& Value)
 {
-	if (bCanDash && CanPerformAction())
+	// Cannot dash while in the air
+	if (bCanDash && CanPerformAction() && !GetCharacterMovement()->IsFalling())
 	{
 		PerformDash();
 	}
@@ -265,6 +266,12 @@ void ASairanCharacter::Dash(const FInputActionValue& Value)
 
 void ASairanCharacter::LightAttack(const FInputActionValue& Value)
 {
+	// Cannot attack while aiming grapple
+	if (GrappleComponent && GrappleComponent->IsAiming())
+	{
+		return;
+	}
+	
 	if (CombatComponent && CanPerformAction() && bIsWeaponDrawn)
 	{
 		CombatComponent->LightAttack();
@@ -273,6 +280,12 @@ void ASairanCharacter::LightAttack(const FInputActionValue& Value)
 
 void ASairanCharacter::HeavyAttackStart(const FInputActionValue& Value)
 {
+	// Cannot attack while aiming grapple
+	if (GrappleComponent && GrappleComponent->IsAiming())
+	{
+		return;
+	}
+	
 	if (CombatComponent && CanPerformAction() && bIsWeaponDrawn)
 	{
 		CombatComponent->StartHeavyAttack();

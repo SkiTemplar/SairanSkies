@@ -70,8 +70,13 @@ void UGrappleComponent::TickComponent(float DeltaTime, ELevelTick TickType, FAct
 			{
 				UpdateVelocityDampening(DeltaTime);
 			}
-			// In releasing state, just let physics handle it
-			// Check if we've landed or need to do anything else
+			else
+			{
+				// Dampening finished - grapple is now available to use again
+				// Reset to Idle immediately (don't wait for landing)
+				SetState(EGrappleState::Idle);
+			}
+			// Also reset if we've landed
 			if (OwnerCharacter && !OwnerCharacter->GetCharacterMovement()->IsFalling())
 			{
 				ResetGrapple();

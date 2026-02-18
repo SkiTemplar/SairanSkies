@@ -15,6 +15,7 @@
 #include "NiagaraFunctionLibrary.h"
 #include "NiagaraSystem.h"
 #include "Sound/SoundBase.h"
+#include "Enemies/EnemyBase.h"
 
 UCombatComponent::UCombatComponent()
 {
@@ -389,11 +390,20 @@ void UCombatComponent::ApplyDamageToTarget(AActor* Target, float Damage, const F
 {
 	if (!Target || !OwnerCharacter) return;
 
-	// Use Unreal's damage system
-	FDamageEvent DamageEvent;
-	Target->TakeDamage(Damage, DamageEvent, OwnerCharacter->GetController(), OwnerCharacter);
+	// Check if target is an EnemyBase - use custom function that handles particles attached to enemy
+	if (AEnemyBase* Enemy = Cast<AEnemyBase>(Target))
+	{
+		// Use the enemy's TakeDamageAtLocation which spawns particles attached to the enemy
+		Enemy->TakeDamageAtLocation(Damage, OwnerCharacter, OwnerCharacter->GetController(), HitLocation);
+	}
+	else
+	{
+		// Use Unreal's standard damage system for other actors
+		FDamageEvent DamageEvent;
+		Target->TakeDamage(Damage, DamageEvent, OwnerCharacter->GetController(), OwnerCharacter);
+	}
 
-	// Apply hit feedback effects
+	// Apply hit feedback effects (camera shake, hitstop, knockback - but NOT particles, enemy handles those)
 	ApplyHitFeedback(Target, HitLocation, Damage);
 
 	// Log for debugging
@@ -416,16 +426,8 @@ void UCombatComponent::ApplyHitFeedback(AActor* HitActor, const FVector& HitLoca
 	// 3. Trigger camera shake - intensity based on attack type
 	TriggerCameraShake(CurrentAttackType);
 
-	// 4. Spawn hit particles (placeholder - assign NiagaraSystem in Blueprint)
-	if (HitParticleSystem)
-	{
-		UNiagaraFunctionLibrary::SpawnSystemAtLocation(
-			GetWorld(),
-			HitParticleSystem,
-			HitLocation,
-			(OwnerCharacter->GetActorLocation() - HitLocation).Rotation()
-		);
-	}
+	// 4. Hit particles are now spawned by the enemy (attached to them so they follow knockback)
+	// See EnemyBase::TakeDamageAtLocation()
 
 	// 5. Play hit sound (placeholder - assign sound in Blueprint)
 	if (HitSound)

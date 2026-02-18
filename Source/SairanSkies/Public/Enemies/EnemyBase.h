@@ -154,8 +154,45 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Enemy|Combat")
 	virtual void TakeDamageFromSource(float DamageAmount, AActor* DamageSource, AController* InstigatorController);
 
+	/** Take damage at a specific world location - spawns particles attached to enemy */
+	UFUNCTION(BlueprintCallable, Category = "Enemy|Combat")
+	virtual void TakeDamageAtLocation(float DamageAmount, AActor* DamageSource, AController* InstigatorController, const FVector& HitWorldLocation);
+
 	UFUNCTION(BlueprintCallable, Category = "Enemy|Combat")
 	virtual void Die(AController* InstigatorController);
+
+	// ==================== HIT FLASH SYSTEM ====================
+	/** Color to flash when hit (like Blasphemous/2D games) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|VFX")
+	FLinearColor HitFlashColor = FLinearColor(1.0f, 1.0f, 1.0f, 1.0f);
+
+	/** Duration of the hit flash in seconds */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|VFX")
+	float HitFlashDuration = 0.1f;
+
+	/** Start the hit flash effect */
+	UFUNCTION(BlueprintCallable, Category = "Enemy|VFX")
+	void StartHitFlash();
+
+protected:
+	/** Stop the hit flash effect and restore original materials */
+	void StopHitFlash();
+
+	/** Timer handle for hit flash */
+	FTimerHandle HitFlashTimerHandle;
+
+	/** Original materials to restore after flash */
+	UPROPERTY()
+	TArray<UMaterialInterface*> OriginalMaterials;
+
+	/** Dynamic material instance for flash effect */
+	UPROPERTY()
+	UMaterialInstanceDynamic* FlashMaterialInstance;
+
+	/** Whether we have cached the original materials */
+	bool bMaterialsCached = false;
+
+public:
 
 	UFUNCTION(BlueprintPure, Category = "Enemy|Combat")
 	bool CanAttackNow() const { return bCanAttack && CurrentState != EEnemyState::Dead; }
