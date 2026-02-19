@@ -12,6 +12,8 @@
 #include "Combat/CombatComponent.h"
 #include "Combat/TargetingComponent.h"
 #include "Combat/GrappleComponent.h"
+#include "Character/CloneComponent.h"
+#include "Character/CheckpointComponent.h"
 #include "Weapons/WeaponBase.h"
 
 ASairanCharacter::ASairanCharacter()
@@ -75,6 +77,9 @@ ASairanCharacter::ASairanCharacter()
 	CameraBoom->CameraLagSpeed = 10.0f;
 	CameraBoom->bEnableCameraRotationLag = true;
 	CameraBoom->CameraRotationLagSpeed = 8.0f;
+	// Camera collision: collide with world geometry but NOT enemies
+	CameraBoom->bDoCollisionTest = true;
+	CameraBoom->ProbeChannel = ECC_Camera;
 
 	// Follow camera
 	FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
@@ -89,6 +94,12 @@ ASairanCharacter::ASairanCharacter()
 
 	// Grapple Component
 	GrappleComponent = CreateDefaultSubobject<UGrappleComponent>(TEXT("GrappleComponent"));
+
+	// Clone Component
+	CloneComponent = CreateDefaultSubobject<UCloneComponent>(TEXT("CloneComponent"));
+
+	// Checkpoint Component (auto-saves last grounded position for respawn)
+	CheckpointComponent = CreateDefaultSubobject<UCheckpointComponent>(TEXT("CheckpointComponent"));
 
 	// Initial state
 	TargetCameraDistance = DefaultCameraDistance;
@@ -181,6 +192,9 @@ void ASairanCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 		// Grapple (hold L2/F to aim, release to fire)
 		EnhancedInputComponent->BindAction(GrappleAction, ETriggerEvent::Started, this, &ASairanCharacter::GrappleStart);
 		EnhancedInputComponent->BindAction(GrappleAction, ETriggerEvent::Completed, this, &ASairanCharacter::GrappleRelease);
+
+		// Clone/Teleport (Y/Triangle, D-pad Up, R on keyboard)
+		EnhancedInputComponent->BindAction(CloneAction, ETriggerEvent::Started, this, &ASairanCharacter::CloneActivate);
 	}
 }
 
@@ -534,6 +548,16 @@ void ASairanCharacter::GrappleRelease(const FInputActionValue& Value)
 			// When releasing the button while aiming, fire the grapple
 			GrappleComponent->FireGrapple();
 		}
+	}
+}
+
+// ========== CLONE INPUT HANDLER ==========
+
+void ASairanCharacter::CloneActivate(const FInputActionValue& Value)
+{
+	if (CloneComponent && CanPerformAction())
+	{
+		CloneComponent->HandleCloneInput();
 	}
 }
 

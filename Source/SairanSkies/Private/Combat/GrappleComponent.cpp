@@ -11,6 +11,9 @@
 #include "NiagaraComponent.h"
 #include "NiagaraFunctionLibrary.h"
 #include "DrawDebugHelpers.h"
+#include "Kismet/GameplayStatics.h"
+#include "Engine/World.h"
+#include "GameFramework/PlayerController.h"
 
 UGrappleComponent::UGrappleComponent()
 {
@@ -60,7 +63,7 @@ void UGrappleComponent::TickComponent(float DeltaTime, ELevelTick TickType, FAct
 			UpdateAiming(DeltaTime);
 			UpdateCharacterRotation(DeltaTime);
 			UpdateGrappleHookVisual();
-			UpdateCrosshair();
+			UpdateCrosshair(DeltaTime);
 			break;
 		case EGrappleState::Pulling:
 			UpdatePulling(DeltaTime);
@@ -166,10 +169,12 @@ void UGrappleComponent::StopAiming()
 
 	// Hide the crosshair
 	HideCrosshair();
+	bCrosshairInitialized = false;
 
 	SetState(EGrappleState::Idle);
 	bHasValidTarget = false;
 	AimTargetLocation = FVector::ZeroVector;
+	CurrentSoftLockTarget = nullptr;
 
 	OnGrappleAimEnd.Broadcast();
 
@@ -267,6 +272,34 @@ void UGrappleComponent::CancelGrapple()
 
 void UGrappleComponent::UpdateAiming(float DeltaTime)
 {
+	// PRIORITY 1: Aim assist - find tagged grappleable targets in screen area
+	AActor* BestTarget = FindBestGrappleTarget();
+	
+	if (BestTarget)
+	{
+		// We have a soft-lock target - snap aim to it
+		CurrentSoftLockTarget = BestTarget;
+		bHasValidTarget = true;
+		
+		// Smooth interpolation towards the target for "sticky" feel
+		FVector DesiredLocation = BestTarget->GetActorLocation();
+		AimTargetLocation = FMath::VInterpTo(AimTargetLocation, DesiredLocation, DeltaTime, AimAssistStickySpeed);
+
+		if (bShowDebug)
+		{
+			DrawDebugSphere(GetWorld(), AimTargetLocation, 40.0f, 12, FColor::Green, false, -1.0f, 0, 3.0f);
+			DrawDebugLine(GetWorld(), OwnerCharacter->GetActorLocation(), AimTargetLocation, FColor::Green, false, -1.0f, 0, 2.0f);
+			GEngine->AddOnScreenDebugMessage(-1, 0.0f, FColor::Green, 
+				FString::Printf(TEXT("Grapple AimAssist: Locked onto %s"), *BestTarget->GetName()));
+		}
+		return;
+	}
+
+	// PRIORITY 2: Fallback - direct line trace from camera center
+	// This catches surfaces/actors with the Grapple tag that aren't picked up by aim assist,
+	// or any surface if bRequireGrappleTag is false
+	CurrentSoftLockTarget = nullptr;
+
 	FHitResult HitResult = PerformAimTrace();
 	
 	if (HitResult.bBlockingHit)
@@ -282,8 +315,9 @@ void UGrappleComponent::UpdateAiming(float DeltaTime)
 	}
 	else
 	{
+		// No valid target at all
 		bHasValidTarget = false;
-		// Calculate where the trace ends (max range)
+		
 		if (OwnerCharacter && OwnerCharacter->FollowCamera)
 		{
 			FVector CameraLocation = OwnerCharacter->FollowCamera->GetComponentLocation();
@@ -424,7 +458,101 @@ FHitResult UGrappleComponent::PerformAimTrace()
 		QueryParams
 	);
 
+	// Tag filter: only accept hits on actors with the Grapple tag (if required)
+	if (bRequireGrappleTag && HitResult.bBlockingHit && HitResult.GetActor())
+	{
+		if (!HitResult.GetActor()->ActorHasTag(GrappleTag))
+		{
+			HitResult.bBlockingHit = false;
+		}
+	}
+
 	return HitResult;
+}
+
+AActor* UGrappleComponent::FindBestGrappleTarget()
+{
+	if (!OwnerCharacter || !OwnerCharacter->FollowCamera)
+	{
+		return nullptr;
+	}
+
+	APlayerController* PC = Cast<APlayerController>(OwnerCharacter->GetController());
+	if (!PC)
+	{
+		return nullptr;
+	}
+
+	// Get all actors with the Grapple tag
+	TArray<AActor*> GrappleActors;
+	UGameplayStatics::GetAllActorsWithTag(GetWorld(), GrappleTag, GrappleActors);
+
+	if (GrappleActors.Num() == 0)
+	{
+		return nullptr;
+	}
+
+	// Get viewport size for screen-space calculations
+	int32 ViewportSizeX, ViewportSizeY;
+	PC->GetViewportSize(ViewportSizeX, ViewportSizeY);
+	FVector2D ScreenCenter(ViewportSizeX * 0.5f, ViewportSizeY * 0.5f);
+
+	AActor* BestTarget = nullptr;
+	float BestScreenDistance = AimAssistScreenRadius; // Only consider targets within this screen radius
+
+	FVector CharacterLocation = OwnerCharacter->GetActorLocation();
+
+	for (AActor* Actor : GrappleActors)
+	{
+		if (!Actor) continue;
+
+		// Check world-space distance
+		float WorldDistance = FVector::Dist(CharacterLocation, Actor->GetActorLocation());
+		if (WorldDistance > MaxGrappleRange)
+		{
+			continue; // Too far
+		}
+
+		// Check line of sight
+		FHitResult LOSHit;
+		FCollisionQueryParams LOSParams;
+		LOSParams.AddIgnoredActor(OwnerCharacter);
+		LOSParams.AddIgnoredActor(Actor);
+
+		FVector CameraLoc = OwnerCharacter->FollowCamera->GetComponentLocation();
+		bool bBlocked = GetWorld()->LineTraceSingleByChannel(
+			LOSHit,
+			CameraLoc,
+			Actor->GetActorLocation(),
+			ECC_Visibility,
+			LOSParams
+		);
+
+		if (bBlocked && LOSHit.GetActor() != Actor)
+		{
+			continue; // Line of sight blocked
+		}
+
+		// Project actor to screen space
+		FVector2D ScreenPosition;
+		bool bOnScreen = PC->ProjectWorldLocationToScreen(Actor->GetActorLocation(), ScreenPosition, true);
+
+		if (!bOnScreen)
+		{
+			continue; // Not on screen
+		}
+
+		// Calculate screen-space distance from center
+		float ScreenDistance = FVector2D::Distance(ScreenCenter, ScreenPosition);
+
+		if (ScreenDistance < BestScreenDistance)
+		{
+			BestScreenDistance = ScreenDistance;
+			BestTarget = Actor;
+		}
+	}
+
+	return BestTarget;
 }
 
 FVector UGrappleComponent::CalculateGrappleDirection() const
@@ -480,6 +608,7 @@ void UGrappleComponent::ResetGrapple()
 	InitialDistanceToTarget = 0.0f;
 	bIsDampeningVelocity = false;
 	DampeningTimeRemaining = 0.0f;
+	CurrentSoftLockTarget = nullptr;
 
 	// Restore character rotation behavior and gravity
 	if (OwnerCharacter)
@@ -605,12 +734,51 @@ void UGrappleComponent::HideCrosshair()
 	}
 }
 
-void UGrappleComponent::UpdateCrosshair()
+void UGrappleComponent::UpdateCrosshair(float DeltaTime)
 {
-	if (CrosshairWidget)
+	if (!CrosshairWidget || !OwnerCharacter)
 	{
-		CrosshairWidget->SetTargetValid(bHasValidTarget);
+		return;
 	}
+
+	CrosshairWidget->SetTargetValid(bHasValidTarget);
+
+	APlayerController* PC = Cast<APlayerController>(OwnerCharacter->GetController());
+	if (!PC)
+	{
+		return;
+	}
+
+	// Calculate screen center
+	int32 ViewportSizeX, ViewportSizeY;
+	PC->GetViewportSize(ViewportSizeX, ViewportSizeY);
+	FVector2D ScreenCenter(ViewportSizeX * 0.5f, ViewportSizeY * 0.5f);
+
+	// Initialize crosshair position at center on first frame
+	if (!bCrosshairInitialized)
+	{
+		CurrentCrosshairPos = ScreenCenter;
+		bCrosshairInitialized = true;
+	}
+
+	// Determine target screen position
+	FVector2D DesiredScreenPos = ScreenCenter; // Default: center
+
+	if (bHasValidTarget && CurrentSoftLockTarget)
+	{
+		FVector2D ProjectedPos;
+		bool bOnScreen = PC->ProjectWorldLocationToScreen(AimTargetLocation, ProjectedPos, true);
+		if (bOnScreen)
+		{
+			DesiredScreenPos = ProjectedPos;
+		}
+	}
+
+	// Smoothly interpolate towards desired position
+	CurrentCrosshairPos = FMath::Vector2DInterpTo(CurrentCrosshairPos, DesiredScreenPos, DeltaTime, CrosshairLerpSpeed);
+
+	// Apply to widget
+	CrosshairWidget->SetScreenPosition(CurrentCrosshairPos);
 }
 
 void UGrappleComponent::StartGrappleTrailParticles()

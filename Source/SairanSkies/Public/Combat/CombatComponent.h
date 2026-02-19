@@ -22,7 +22,8 @@ enum class EAttackType : uint8
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnAttackPerformed, EAttackType, AttackType);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnParrySuccess);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnParryWindow);
+	DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnParryWindow);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnBlockPerformed, float, DamageBlocked, bool, bWasPerfectParry);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnHitLanded, AActor*, HitActor, FVector, HitLocation, float, Damage);
 
 UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent))
@@ -76,6 +77,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Combat")
 	bool IsInParryWindow() const { return bIsInParryWindow; }
 
+	/** Called when the player receives an incoming attack. Returns true if fully blocked (parry), false if partial block or no block. */
+	UFUNCTION(BlueprintCallable, Category = "Combat")
+	bool HandleIncomingDamage(float IncomingDamage, AActor* Attacker, float& OutDamageApplied);
+
 	// ========== HIT DETECTION ==========
 	UFUNCTION(BlueprintCallable, Category = "Combat")
 	void EnableHitDetection();
@@ -97,6 +102,10 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|Damage")
 	float ChargedAttackDamage = 80.0f;
 
+	/** +/- random variance applied to each attack's damage */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|Damage")
+	float DamageVariance = 2.0f;
+
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|Damage")
 	float ChargeTimeForMaxDamage = 2.0f;
 
@@ -106,6 +115,24 @@ public:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|Parry")
 	float ParryCooldown = 0.5f;
+
+	// ========== PARRY/BLOCK FEEDBACK ==========
+
+	/** VFX when a perfect parry (deflect) occurs */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|Parry")
+	UNiagaraSystem* ParryDeflectVFX;
+
+	/** VFX when a normal block occurs */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|Parry")
+	UNiagaraSystem* BlockVFX;
+
+	/** Sound when a perfect parry (deflect) occurs - like Sekiro clang */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|Parry")
+	USoundBase* ParryDeflectSound;
+
+	/** Sound when a normal block occurs */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|Parry")
+	USoundBase* BlockSound;
 
 	// ========== COMBO SETTINGS ==========
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|Combo")
@@ -184,6 +211,9 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Combat|Events")
 	FOnParryWindow OnParryWindow;
 
+	UPROPERTY(BlueprintAssignable, Category = "Combat|Events")
+	FOnBlockPerformed OnBlockPerformed;
+
 	/** Called when a hit lands on an enemy - use for VFX/SFX */
 	UPROPERTY(BlueprintAssignable, Category = "Combat|Events")
 	FOnHitLanded OnHitLanded;
@@ -233,6 +263,8 @@ private:
 	void ProcessBufferedInput();
 	void PerformHitDetection();
 	float GetDamageForAttackType(EAttackType AttackType) const;
+	/** Apply damage variance: base +/- DamageVariance randomly */
+	float ApplyDamageVariance(float BaseDamage) const;
 	void ApplyDamageToTarget(AActor* Target, float Damage, const FVector& HitLocation);
 	
 	/** Apply all hit feedback effects */
@@ -241,6 +273,9 @@ private:
 	void TriggerHitstop(EAttackType AttackType);
 	void TriggerCameraShake(EAttackType AttackType);
 	void ResumeFromHitstop();
+
+	/** Play parry/block VFX and SFX */
+	void PlayParryFeedback(bool bPerfectParry);
 
 	FTimerHandle ComboResetTimer;
 	FTimerHandle ParryWindowTimer;

@@ -14,6 +14,8 @@ class UInputAction;
 class UCombatComponent;
 class UTargetingComponent;
 class UGrappleComponent;
+class UCloneComponent;
+class UCheckpointComponent;
 class AWeaponBase;
 class USceneComponent;
 
@@ -61,6 +63,12 @@ public:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
 	UGrappleComponent* GrappleComponent;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Abilities")
+	UCloneComponent* CloneComponent;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Survival")
+	UCheckpointComponent* CheckpointComponent;
 
 
 	// ========== WEAPON ATTACH POINTS ==========
@@ -113,6 +121,9 @@ public:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	UInputAction* GrappleAction;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	UInputAction* CloneAction;
 
 	// ========== MOVEMENT SETTINGS ==========
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Movement")
@@ -230,6 +241,7 @@ protected:
 	void SwitchWeapon(const FInputActionValue& Value);
 	void GrappleStart(const FInputActionValue& Value);
 	void GrappleRelease(const FInputActionValue& Value);
+	void CloneActivate(const FInputActionValue& Value);
 
 private:
 	void UpdateCameraDistance(float DeltaTime);

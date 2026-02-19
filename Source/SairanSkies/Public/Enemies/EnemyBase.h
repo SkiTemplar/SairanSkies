@@ -14,6 +14,7 @@ class APatrolPath;
 class UAnimMontage;
 class UNiagaraSystem;
 class USoundBase;
+class UDamageNumberComponent;
 
 UCLASS(Abstract)
 class SAIRANSKIES_API AEnemyBase : public ACharacter
@@ -56,6 +57,10 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|VFX")
 	FEnemyVFXConfig VFXConfig;
+
+	/** Floating damage numbers above the enemy head */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Enemy|UI")
+	UDamageNumberComponent* DamageNumberComponent;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|AI")
 	UBehaviorTree* BehaviorTree;

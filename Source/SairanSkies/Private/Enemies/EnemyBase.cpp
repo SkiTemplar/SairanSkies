@@ -16,6 +16,8 @@
 #include "Sound/SoundBase.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Enemies/DamageNumberComponent.h"
+#include "Components/CapsuleComponent.h"
 
 // Blackboard Keys
 const FName AEnemyBase::BB_TargetActor = TEXT("TargetActor");
@@ -47,6 +49,16 @@ AEnemyBase::AEnemyBase()
 	TimeSinceLastSawTarget = 0.0f;
 	AttackCooldownTimer = 0.0f;
 	BaseMaxWalkSpeed = 600.0f;
+
+	// Damage numbers component
+	DamageNumberComponent = CreateDefaultSubobject<UDamageNumberComponent>(TEXT("DamageNumberComponent"));
+
+	// Enemies should NOT push the player's camera - ignore Camera trace channel
+	GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
+	if (GetMesh())
+	{
+		GetMesh()->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
+	}
 	
 	// Strafe
 	bIsStrafing = false;
@@ -438,6 +450,12 @@ void AEnemyBase::Die(AController* InstigatorController)
 
 	PlayRandomSound(SoundConfig.DeathSounds);
 	OnEnemyDeath.Broadcast(InstigatorController);
+
+	// Show death X marker on damage numbers
+	if (DamageNumberComponent)
+	{
+		DamageNumberComponent->ShowDeathMarker();
+	}
 
 	if (GetCharacterMovement())
 	{
@@ -1006,6 +1024,12 @@ void AEnemyBase::TakeDamageAtLocation(float DamageAmount, AActor* DamageSource, 
 	
 	// Start the hit flash (Blasphemous-style visual feedback)
 	StartHitFlash();
+
+	// Update floating damage numbers
+	if (DamageNumberComponent)
+	{
+		DamageNumberComponent->AddDamage(DamageAmount, GetHealthPercent());
+	}
 
 	if (!CurrentTarget && DamageSource)
 	{

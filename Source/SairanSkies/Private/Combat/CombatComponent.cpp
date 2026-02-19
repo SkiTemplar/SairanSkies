@@ -373,17 +373,34 @@ void UCombatComponent::PerformHitDetection()
 
 float UCombatComponent::GetDamageForAttackType(EAttackType AttackType) const
 {
+	float BaseDamage = 0.0f;
 	switch (AttackType)
 	{
 	case EAttackType::Light:
-		return LightAttackDamage;
+		BaseDamage = LightAttackDamage;
+		break;
 	case EAttackType::Heavy:
-		return HeavyAttackDamage;
+		BaseDamage = HeavyAttackDamage;
+		break;
 	case EAttackType::Charged:
-		return ChargedAttackDamage;
+		BaseDamage = ChargedAttackDamage;
+		break;
 	default:
 		return 0.0f;
 	}
+	return ApplyDamageVariance(BaseDamage);
+}
+
+float UCombatComponent::ApplyDamageVariance(float BaseDamage) const
+{
+	if (DamageVariance <= 0.0f)
+	{
+		return BaseDamage;
+	}
+	// Random integer in range [Base - Variance, Base + Variance]
+	int32 MinDmg = FMath::RoundToInt(BaseDamage - DamageVariance);
+	int32 MaxDmg = FMath::RoundToInt(BaseDamage + DamageVariance);
+	return static_cast<float>(FMath::RandRange(MinDmg, MaxDmg));
 }
 
 void UCombatComponent::ApplyDamageToTarget(AActor* Target, float Damage, const FVector& HitLocation)
@@ -588,6 +605,86 @@ void UCombatComponent::ReleaseBlock()
 	if (bIsInParryWindow && OwnerCharacter && OwnerCharacter->CurrentState == ECharacterState::Parrying)
 	{
 		OwnerCharacter->SetCharacterState(ECharacterState::Idle);
+	}
+}
+
+// ========== INCOMING DAMAGE / PARRY SYSTEM ==========
+
+bool UCombatComponent::HandleIncomingDamage(float IncomingDamage, AActor* Attacker, float& OutDamageApplied)
+{
+	if (!OwnerCharacter)
+	{
+		OutDamageApplied = IncomingDamage;
+		return false;
+	}
+
+	// Perfect parry (Sekiro deflect) - within parry window
+	if (bIsInParryWindow)
+	{
+		OutDamageApplied = 0.0f;
+		PlayParryFeedback(true);
+		OnParrySuccess.Broadcast();
+		
+		UE_LOG(LogTemp, Log, TEXT("PERFECT PARRY! Damage fully deflected."));
+		return true;
+	}
+
+	// Normal block - holding block but outside parry window
+	if (bIsHoldingBlock)
+	{
+		// Partial damage - 30% gets through the block
+		OutDamageApplied = IncomingDamage * 0.3f;
+		PlayParryFeedback(false);
+		OnBlockPerformed.Broadcast(IncomingDamage - OutDamageApplied, false);
+		
+		UE_LOG(LogTemp, Log, TEXT("BLOCK! Reduced damage from %.1f to %.1f"), IncomingDamage, OutDamageApplied);
+		return false;
+	}
+
+	// No block at all
+	OutDamageApplied = IncomingDamage;
+	return false;
+}
+
+void UCombatComponent::PlayParryFeedback(bool bPerfectParry)
+{
+	if (!OwnerCharacter) return;
+
+	FVector FeedbackLocation = OwnerCharacter->GetActorLocation() + OwnerCharacter->GetActorForwardVector() * 80.0f;
+	FeedbackLocation.Z += 50.0f; // Slightly above center
+
+	if (bPerfectParry)
+	{
+		// Perfect parry - Sekiro-style clang
+		if (ParryDeflectVFX)
+		{
+			UNiagaraFunctionLibrary::SpawnSystemAtLocation(
+				GetWorld(), ParryDeflectVFX, FeedbackLocation,
+				FRotator::ZeroRotator, FVector(1.0f), true, true);
+		}
+		if (ParryDeflectSound)
+		{
+			UGameplayStatics::PlaySoundAtLocation(GetWorld(), ParryDeflectSound, FeedbackLocation);
+		}
+
+		// Trigger a strong camera shake for perfect parry
+		TriggerCameraShake(EAttackType::Heavy);
+		// Brief hitstop for impact
+		TriggerHitstop(EAttackType::Light);
+	}
+	else
+	{
+		// Normal block
+		if (BlockVFX)
+		{
+			UNiagaraFunctionLibrary::SpawnSystemAtLocation(
+				GetWorld(), BlockVFX, FeedbackLocation,
+				FRotator::ZeroRotator, FVector(1.0f), true, true);
+		}
+		if (BlockSound)
+		{
+			UGameplayStatics::PlaySoundAtLocation(GetWorld(), BlockSound, FeedbackLocation);
+		}
 	}
 }
 

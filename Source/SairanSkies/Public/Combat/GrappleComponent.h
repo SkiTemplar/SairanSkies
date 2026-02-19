@@ -12,6 +12,7 @@ class UStaticMeshComponent;
 class USceneComponent;
 class AGrappleHookActor;
 class UGrappleCrosshairWidget;
+class APlayerController;
 
 UENUM(BlueprintType)
 enum class EGrappleState : uint8
@@ -82,6 +83,32 @@ public:
 	/** Maximum range of the grapple hook (30 meters = 3000 units) */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Grapple|Settings")
 	float MaxGrappleRange = 3000.0f;
+
+	/** Tag that objects must have to be grappleable */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Grapple|Settings")
+	FName GrappleTag = FName("Grapple");
+
+	/** If true, only actors with GrappleTag can be grappled. If false, any surface works (tag still gives aim assist priority) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Grapple|Settings")
+	bool bRequireGrappleTag = true;
+
+	// ========== AIM ASSIST ==========
+
+	/** Screen-space radius (in pixels) for aim assist detection area */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Grapple|AimAssist")
+	float AimAssistScreenRadius = 250.0f;
+
+	/** How quickly the aim snaps to the target (higher = faster) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Grapple|AimAssist")
+	float AimAssistStickySpeed = 18.0f;
+
+	/** How quickly the crosshair moves on screen (higher = faster) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Grapple|AimAssist")
+	float CrosshairLerpSpeed = 15.0f;
+
+	/** Currently soft-locked grapple target actor */
+	UPROPERTY(BlueprintReadOnly, Category = "Grapple|AimAssist")
+	AActor* CurrentSoftLockTarget = nullptr;
 
 	/** Speed at which the player is pulled towards the target */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Grapple|Settings")
@@ -205,6 +232,9 @@ private:
 	void SetState(EGrappleState NewState);
 	void ResetGrapple();
 	
+	// Aim assist - find best grappleable target in screen area
+	AActor* FindBestGrappleTarget();
+	
 	// Calculate the adjusted target direction (15 degrees below actual target)
 	FVector CalculateGrappleDirection() const;
 	
@@ -219,7 +249,7 @@ private:
 	void CreateCrosshairWidget();
 	void ShowCrosshair();
 	void HideCrosshair();
-	void UpdateCrosshair();
+	void UpdateCrosshair(float DeltaTime);
 
 	// Particle effects management
 	void StartGrappleTrailParticles();
@@ -255,4 +285,8 @@ private:
 	// Post-grapple velocity dampening state
 	bool bIsDampeningVelocity = false;
 	float DampeningTimeRemaining = 0.0f;
+
+	// Crosshair smooth tracking state
+	FVector2D CurrentCrosshairPos = FVector2D::ZeroVector;
+	bool bCrosshairInitialized = false;
 };
