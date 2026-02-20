@@ -37,9 +37,8 @@ FString UBTDecorator_CheckEnemyState::GetStaticDescription() const
 	case EEnemyState::Patrolling: StateName = TEXT("Patrolling"); break;
 	case EEnemyState::Investigating: StateName = TEXT("Investigating"); break;
 	case EEnemyState::Chasing: StateName = TEXT("Chasing"); break;
-	case EEnemyState::Positioning: StateName = TEXT("Positioning"); break;
 	case EEnemyState::Attacking: StateName = TEXT("Attacking"); break;
-	case EEnemyState::Taunting: StateName = TEXT("Taunting"); break;
+	case EEnemyState::Conversing: StateName = TEXT("Conversing"); break;
 	case EEnemyState::Dead: StateName = TEXT("Dead"); break;
 	default: StateName = TEXT("Unknown"); break;
 	}

@@ -21,9 +21,7 @@ enum class EEnemyState : uint8
 	Patrolling		UMETA(DisplayName = "Patrolling"),
 	Investigating	UMETA(DisplayName = "Investigating"),
 	Chasing			UMETA(DisplayName = "Chasing"),
-	Positioning		UMETA(DisplayName = "Positioning"),
 	Attacking		UMETA(DisplayName = "Attacking"),
-	Taunting		UMETA(DisplayName = "Taunting"),
 	Conversing		UMETA(DisplayName = "Conversing"),
 	Dead			UMETA(DisplayName = "Dead")
 };
@@ -56,14 +54,6 @@ struct FEnemyCombatConfig
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
 	float MaxAttackDistance = 200.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
-	float PositioningDistance = 350.0f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
-	float MinPositioningTime = 1.0f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
-	float MaxPositioningTime = 3.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
 	float BaseDamage = 10.0f;
@@ -120,10 +110,10 @@ struct FEnemyPatrolConfig
 	GENERATED_BODY()
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Patrol", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-	float PatrolSpeedMultiplier = 0.5f;
+	float PatrolSpeedMultiplier = 0.25f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Patrol", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-	float ChaseSpeedMultiplier = 1.0f;
+	float ChaseSpeedMultiplier = 0.5f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Patrol")
 	float WaitTimeAtPatrolPoint = 2.0f;
@@ -146,15 +136,6 @@ struct FEnemyBehaviorConfig
 {
 	GENERATED_BODY()
 
-	// ========== STRAFE EN COMBATE ==========
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-	float ChanceToStrafe = 0.5f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
-	float StrafeDuration = 1.5f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
-	float StrafeSpeed = 200.0f;
 
 	// ========== COMPORTAMIENTO NATURAL ==========
 	

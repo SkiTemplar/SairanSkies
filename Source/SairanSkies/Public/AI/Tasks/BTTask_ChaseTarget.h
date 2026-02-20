@@ -6,6 +6,10 @@
 #include "BehaviorTree/BTTaskNode.h"
 #include "BTTask_ChaseTarget.generated.h"
 
+/**
+ * Persigue al target hasta llegar a la distancia de ataque.
+ * Persecución directa, sin rodeo.
+ */
 UCLASS()
 class SAIRANSKIES_API UBTTask_ChaseTarget : public UBTTaskNode
 {
@@ -18,11 +22,6 @@ public:
 	virtual void TickTask(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory, float DeltaSeconds) override;
 	virtual EBTNodeResult::Type AbortTask(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory) override;
 	virtual FString GetStaticDescription() const override;
-
-protected:
-	UPROPERTY(EditAnywhere, Category = "Chase")
-	float AcceptanceRadius = 100.0f;
-
-	UPROPERTY(EditAnywhere, Category = "Chase")
-	bool bUsePositioningDistance = true;
 };
+
+

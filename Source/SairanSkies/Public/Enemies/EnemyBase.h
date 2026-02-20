@@ -217,17 +217,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Enemy|Combat")
 	virtual bool CanAttack() const;
 
-	UFUNCTION(BlueprintCallable, Category = "Enemy|Combat")
-	virtual void PerformTaunt();
-
-	UFUNCTION(BlueprintPure, Category = "Enemy|Combat")
-	virtual bool ShouldTaunt() const;
-
 	UFUNCTION(BlueprintPure, Category = "Enemy|Combat")
 	virtual bool HasEnoughAlliesForAggression() const;
 
-	UFUNCTION(BlueprintCallable, Category = "Enemy|Combat")
-	virtual void HandleCombatBehavior(float DeltaTime);
 
 	// ==================== ALLY COORDINATION ====================
 public:
@@ -260,15 +252,6 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Enemy|Movement")
 	void SetMovementSpeed(float SpeedMultiplier);
 
-	UFUNCTION(BlueprintCallable, Category = "Enemy|Movement")
-	void StartStrafe(bool bStrafeRight);
-
-	UFUNCTION(BlueprintCallable, Category = "Enemy|Movement")
-	void StopStrafe();
-
-	UFUNCTION(BlueprintPure, Category = "Enemy|Movement")
-	bool IsStrafing() const { return bIsStrafing; }
-
 	// Velocidad con variación natural
 	UFUNCTION(BlueprintCallable, Category = "Enemy|Movement")
 	void SetPatrolSpeedWithVariation();
@@ -277,11 +260,6 @@ protected:
 	UPROPERTY()
 	float BaseMaxWalkSpeed;
 
-	bool bIsStrafing = false;
-	float StrafeDirection = 1.0f;
-	float StrafeTimer = 0.0f;
-
-	void UpdateStrafe(float DeltaTime);
 
 	// ==================== NATURAL BEHAVIOR (AAA-style) ====================
 public:
@@ -392,8 +370,6 @@ public:
 	static const FName BB_PatrolIndex;
 	static const FName BB_DistanceToTarget;
 	static const FName BB_CanAttack;
-	static const FName BB_IsInPause;
-	static const FName BB_IsConversing;
 
 	// ==================== STATIC ATTACKER TRACKING ====================
 protected:

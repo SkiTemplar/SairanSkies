@@ -114,9 +114,6 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "Actions")
 	bool bIsAttacking;
 
-	// Is currently taunting?
-	UPROPERTY(BlueprintReadOnly, Category = "Actions")
-	bool bIsTaunting;
 
 	// Is taking damage?
 	UPROPERTY(BlueprintReadOnly, Category = "Actions")

@@ -27,8 +27,6 @@ const FName AEnemyBase::BB_CanSeeTarget = TEXT("CanSeeTarget");
 const FName AEnemyBase::BB_PatrolIndex = TEXT("PatrolIndex");
 const FName AEnemyBase::BB_DistanceToTarget = TEXT("DistanceToTarget");
 const FName AEnemyBase::BB_CanAttack = TEXT("CanAttack");
-const FName AEnemyBase::BB_IsInPause = TEXT("IsInPause");
-const FName AEnemyBase::BB_IsConversing = TEXT("IsConversing");
 
 // Static attacker tracking
 TArray<AEnemyBase*> AEnemyBase::ActiveAttackers;
@@ -48,7 +46,7 @@ AEnemyBase::AEnemyBase()
 	bCanAttack = true;
 	TimeSinceLastSawTarget = 0.0f;
 	AttackCooldownTimer = 0.0f;
-	BaseMaxWalkSpeed = 600.0f;
+	BaseMaxWalkSpeed = 350.0f;
 
 	// Damage numbers component
 	DamageNumberComponent = CreateDefaultSubobject<UDamageNumberComponent>(TEXT("DamageNumberComponent"));
@@ -60,10 +58,7 @@ AEnemyBase::AEnemyBase()
 		GetMesh()->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
 	}
 	
-	// Strafe
-	bIsStrafing = false;
-	StrafeDirection = 1.0f;
-	StrafeTimer = 0.0f;
+	// Attacker tracking
 	bIsActiveAttacker = false;
 	
 	// Natural behavior
@@ -126,11 +121,6 @@ void AEnemyBase::Tick(float DeltaTime)
 		ConversationCooldownTimer -= DeltaTime;
 	}
 
-	// Update strafe
-	if (bIsStrafing)
-	{
-		UpdateStrafe(DeltaTime);
-	}
 
 	// Update natural behaviors
 	if (bIsInRandomPause)
@@ -228,12 +218,11 @@ void AEnemyBase::SetEnemyState(EEnemyState NewState)
 	}
 
 	// Cleanup when leaving combat states
-	if (OldState == EEnemyState::Attacking || OldState == EEnemyState::Chasing || OldState == EEnemyState::Positioning)
+	if (OldState == EEnemyState::Attacking || OldState == EEnemyState::Chasing)
 	{
-		if (NewState != EEnemyState::Attacking && NewState != EEnemyState::Chasing && NewState != EEnemyState::Positioning)
+		if (NewState != EEnemyState::Attacking && NewState != EEnemyState::Chasing)
 		{
 			UnregisterAsAttacker();
-			StopStrafe();
 		}
 	}
 
@@ -247,7 +236,6 @@ void AEnemyBase::SetEnemyState(EEnemyState NewState)
 bool AEnemyBase::IsInCombat() const
 {
 	return CurrentState == EEnemyState::Chasing ||
-		   CurrentState == EEnemyState::Positioning ||
 		   CurrentState == EEnemyState::Attacking;
 }
 
@@ -345,7 +333,6 @@ void AEnemyBase::LoseTarget()
 	if (CurrentTarget)
 	{
 		UnregisterAsAttacker();
-		StopStrafe();
 		CurrentTarget = nullptr;
 		OnPlayerLost.Broadcast();
 
@@ -395,22 +382,19 @@ void AEnemyBase::Attack()
 {
 	if (!CanAttackNow() || !CurrentTarget)
 	{
+		UE_LOG(LogTemp, Verbose, TEXT("EnemyBase::Attack() %s: ignorado (CanAttackNow=%d, HasTarget=%d)"),
+			*GetName(), (int)CanAttackNow(), (CurrentTarget != nullptr));
 		return;
 	}
 
+	// Marcar cooldown de ataque (el daño lo aplica BTTask_AttackTarget con varianza)
 	bCanAttack = false;
 	AttackCooldownTimer = CombatConfig.AttackCooldown;
 
-	SetEnemyState(EEnemyState::Attacking);
 	PlayRandomSound(SoundConfig.AttackSounds);
 
-	UGameplayStatics::ApplyDamage(
-		CurrentTarget,
-		CombatConfig.BaseDamage,
-		GetController(),
-		this,
-		UDamageType::StaticClass()
-	);
+	UE_LOG(LogTemp, Log, TEXT("EnemyBase::Attack() %s: cooldown iniciado (%.1fs), atacando a %s"),
+		*GetName(), CombatConfig.AttackCooldown, *CurrentTarget->GetName());
 }
 
 void AEnemyBase::TakeDamageFromSource(float DamageAmount, AActor* DamageSource, AController* InstigatorController)
@@ -484,30 +468,11 @@ bool AEnemyBase::CanAttack() const
 	return bCanAttack && CurrentState != EEnemyState::Dead;
 }
 
-void AEnemyBase::PerformTaunt()
-{
-	// Base implementation - subclasses can override
-	// This is called when the enemy wants to taunt
-	SetEnemyState(EEnemyState::Taunting);
-}
-
-bool AEnemyBase::ShouldTaunt() const
-{
-	// Base implementation - subclasses can override
-	// By default, enemies don't taunt
-	return false;
-}
-
 bool AEnemyBase::HasEnoughAlliesForAggression() const
 {
 	return NearbyAlliesCount >= CombatConfig.MinAlliesForAggression;
 }
 
-void AEnemyBase::HandleCombatBehavior(float DeltaTime)
-{
-	// Base implementation - subclasses can override
-	// This is called during combat to handle special behaviors
-}
 
 // ==================== ALLY COORDINATION ====================
 
@@ -614,42 +579,6 @@ void AEnemyBase::SetMovementSpeed(float SpeedMultiplier)
 	}
 }
 
-void AEnemyBase::StartStrafe(bool bStrafeRight)
-{
-	bIsStrafing = true;
-	StrafeDirection = bStrafeRight ? 1.0f : -1.0f;
-	StrafeTimer = BehaviorConfig.StrafeDuration;
-}
-
-void AEnemyBase::StopStrafe()
-{
-	bIsStrafing = false;
-	StrafeTimer = 0.0f;
-}
-
-void AEnemyBase::UpdateStrafe(float DeltaTime)
-{
-	if (!bIsStrafing || !CurrentTarget)
-	{
-		return;
-	}
-
-	StrafeTimer -= DeltaTime;
-	if (StrafeTimer <= 0.0f)
-	{
-		// Change strafe direction randomly
-		StrafeDirection = FMath::RandBool() ? 1.0f : -1.0f;
-		StrafeTimer = BehaviorConfig.StrafeDuration;
-	}
-
-	FVector ToTarget = (CurrentTarget->GetActorLocation() - GetActorLocation()).GetSafeNormal();
-	FVector StrafeDir = FVector::CrossProduct(ToTarget, FVector::UpVector) * StrafeDirection;
-	
-	AddMovementInput(StrafeDir, BehaviorConfig.StrafeSpeed * DeltaTime / 100.0f);
-
-	FRotator LookAtRotation = ToTarget.Rotation();
-	SetActorRotation(FMath::RInterpTo(GetActorRotation(), LookAtRotation, DeltaTime, 5.0f));
-}
 
 // ==================== NATURAL BEHAVIOR ====================
 

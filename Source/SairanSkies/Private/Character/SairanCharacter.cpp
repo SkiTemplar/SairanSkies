@@ -1,4 +1,4 @@
-﻿// SairanSkies - Character Principal Implementation
+// SairanSkies - Character Principal Implementation
 
 #include "Character/SairanCharacter.h"
 #include "GameFramework/SpringArmComponent.h"
@@ -124,6 +124,44 @@ void ASairanCharacter::BeginPlay()
 
 	// Set initial speed
 	GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
+
+	// Initialize health
+	CurrentHealth = MaxHealth;
+}
+
+// ========== DAMAGE / PARRY / BLOCK ==========
+float ASairanCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent,
+	AController* EventInstigator, AActor* DamageCauser)
+{
+	if (CurrentHealth <= 0.0f) return 0.0f;
+
+	float DamageApplied = DamageAmount;
+
+	// Route through CombatComponent for parry/block
+	if (CombatComponent)
+	{
+		bool bParried = CombatComponent->HandleIncomingDamage(DamageAmount, DamageCauser, DamageApplied);
+		if (bParried)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("Player: PARRY! Damage deflected from %s"), *GetNameSafe(DamageCauser));
+			return 0.0f;
+		}
+	}
+
+	// Apply remaining damage
+	CurrentHealth = FMath::Clamp(CurrentHealth - DamageApplied, 0.0f, MaxHealth);
+
+	UE_LOG(LogTemp, Warning, TEXT("Player: HP %.0f/%.0f (took %.1f from %s%s)"),
+		CurrentHealth, MaxHealth, DamageApplied, *GetNameSafe(DamageCauser),
+		(DamageApplied < DamageAmount) ? TEXT(" — BLOCKED") : TEXT(""));
+
+	if (CurrentHealth <= 0.0f)
+	{
+		UE_LOG(LogTemp, Error, TEXT("Player: DEAD!"));
+		// TODO: death handling
+	}
+
+	return DamageApplied;
 }
 
 void ASairanCharacter::Tick(float DeltaTime)

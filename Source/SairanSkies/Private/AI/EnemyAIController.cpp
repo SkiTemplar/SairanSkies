@@ -172,8 +172,6 @@ void AEnemyAIController::InitializeBlackboardValues()
 	Blackboard->SetValueAsInt(AEnemyBase::BB_PatrolIndex, 0);
 	Blackboard->SetValueAsFloat(AEnemyBase::BB_DistanceToTarget, 0.0f);
 	Blackboard->SetValueAsBool(AEnemyBase::BB_CanAttack, true);
-	Blackboard->SetValueAsBool(AEnemyBase::BB_IsInPause, false);
-	Blackboard->SetValueAsBool(AEnemyBase::BB_IsConversing, false);
 }
 
 ETeamAttitude::Type AEnemyAIController::GetTeamAttitudeTowards(const AActor& Other) const

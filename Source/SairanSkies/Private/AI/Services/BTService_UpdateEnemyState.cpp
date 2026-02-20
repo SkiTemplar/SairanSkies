@@ -48,8 +48,6 @@ void UBTService_UpdateEnemyState::TickNode(UBehaviorTreeComponent& OwnerComp, ui
 	BlackboardComp->SetValueAsBool(AEnemyBase::BB_CanSeeTarget, Enemy->CanSeeTarget());
 	BlackboardComp->SetValueAsFloat(AEnemyBase::BB_DistanceToTarget, Enemy->GetDistanceToTarget());
 	BlackboardComp->SetValueAsBool(AEnemyBase::BB_CanAttack, Enemy->CanJoinAttack() && Enemy->CanAttackNow());
-	BlackboardComp->SetValueAsBool(AEnemyBase::BB_IsInPause, Enemy->IsInRandomPause());
-	BlackboardComp->SetValueAsBool(AEnemyBase::BB_IsConversing, Enemy->IsConversing());
 }
 
 FString UBTService_UpdateEnemyState::GetStaticDescription() const

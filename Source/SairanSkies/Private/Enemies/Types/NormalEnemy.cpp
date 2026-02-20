@@ -15,9 +15,6 @@ ANormalEnemy::ANormalEnemy()
 	// Combat configuration
 	CombatConfig.MinAttackDistance = 100.0f;
 	CombatConfig.MaxAttackDistance = 150.0f;
-	CombatConfig.PositioningDistance = 300.0f;
-	CombatConfig.MinPositioningTime = 1.5f;
-	CombatConfig.MaxPositioningTime = 3.5f;
 	CombatConfig.BaseDamage = 10.0f;
 	CombatConfig.AttackCooldown = 1.5f;
 	CombatConfig.AllyDetectionRadius = 1500.0f;
@@ -33,19 +30,16 @@ ANormalEnemy::ANormalEnemy()
 	PerceptionConfig.InvestigationRadius = 400.0f;
 
 	// Patrol configuration
-	PatrolConfig.PatrolSpeedMultiplier = 0.4f;
-	PatrolConfig.ChaseSpeedMultiplier = 1.0f;
+	PatrolConfig.PatrolSpeedMultiplier = 0.25f;
+	PatrolConfig.ChaseSpeedMultiplier = 0.5f;
 	PatrolConfig.WaitTimeAtPatrolPoint = 2.0f;
 	PatrolConfig.PatrolPointAcceptanceRadius = 100.0f;
 	PatrolConfig.bRandomPatrol = false;
 
 	// Behavior
-	TauntProbability = 0.3f;
-	TauntCooldown = 5.0f;
 	LowAlliesAggressionMultiplier = 0.5f;
 	HighAlliesAggressionMultiplier = 1.5f;
 
-	TimeSinceLastTaunt = TauntCooldown; // Allow immediate taunt
 	bIsAggressive = false;
 
 	// Set default AI Controller class
@@ -64,17 +58,6 @@ void ANormalEnemy::BeginPlay()
 void ANormalEnemy::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
-
-	if (IsDead())
-	{
-		return;
-	}
-
-	// Update taunt cooldown
-	TimeSinceLastTaunt += DeltaTime;
-
-	// Adjust combat behavior based on nearby allies
-	AdjustCombatDistances();
 }
 
 // ==================== COMBAT OVERRIDES ====================
@@ -86,69 +69,13 @@ void ANormalEnemy::Attack()
 		return;
 	}
 
-	// Apply aggression multiplier to damage
-	float AdjustedDamage = CombatConfig.BaseDamage * GetAggressionMultiplier();
-
-	// Set attack state
+	// Set attack state and start cooldown
+	// Note: actual damage is applied by BTTask_AttackTarget
 	SetEnemyState(EEnemyState::Attacking);
-
 	bCanAttack = false;
 	AttackCooldownTimer = CombatConfig.AttackCooldown;
-
-	// Apply damage
-	UGameplayStatics::ApplyDamage(
-		GetCurrentTarget(),
-		AdjustedDamage,
-		GetController(),
-		this,
-		UDamageType::StaticClass()
-	);
 }
 
-void ANormalEnemy::PerformTaunt()
-{
-	if (IsDead() || TimeSinceLastTaunt < TauntCooldown)
-	{
-		return;
-	}
-
-	SetEnemyState(EEnemyState::Taunting);
-	TimeSinceLastTaunt = 0.0f;
-
-	// Optionally alert more allies when taunting
-	if (GetCurrentTarget())
-	{
-		AlertNearbyAllies(GetCurrentTarget());
-	}
-}
-
-bool ANormalEnemy::ShouldTaunt() const
-{
-	// Don't taunt if on cooldown
-	if (TimeSinceLastTaunt < TauntCooldown)
-	{
-		return false;
-	}
-
-	// Only taunt in combat
-	if (!IsInCombat())
-	{
-		return false;
-	}
-
-	// More likely to taunt with more allies
-	float AdjustedProbability = TauntProbability;
-	if (HasEnoughAlliesForAggression())
-	{
-		AdjustedProbability *= 1.5f;
-	}
-	else
-	{
-		AdjustedProbability *= 0.5f;
-	}
-
-	return FMath::RandRange(0.0f, 1.0f) < AdjustedProbability;
-}
 
 // ==================== STATE MANAGEMENT ====================
 
@@ -162,12 +89,7 @@ void ANormalEnemy::OnStateEnter(EEnemyState NewState)
 		SetChaseSpeed();
 		break;
 
-	case EEnemyState::Positioning:
-		SetMovementSpeed(PatrolConfig.ChaseSpeedMultiplier * 0.7f);
-		break;
-
 	case EEnemyState::Attacking:
-	case EEnemyState::Taunting:
 		if (GetCharacterMovement())
 		{
 			GetCharacterMovement()->StopMovementImmediately();
@@ -182,22 +104,6 @@ void ANormalEnemy::OnStateEnter(EEnemyState NewState)
 void ANormalEnemy::OnStateExit(EEnemyState OldState)
 {
 	Super::OnStateExit(OldState);
-}
-
-void ANormalEnemy::HandleCombatBehavior(float DeltaTime)
-{
-	Super::HandleCombatBehavior(DeltaTime);
-
-	if (IsInCombat() && GetCurrentTarget())
-	{
-		bool bShouldBeAggressive = HasEnoughAlliesForAggression();
-		
-		if (bShouldBeAggressive != bIsAggressive)
-		{
-			bIsAggressive = bShouldBeAggressive;
-			AdjustCombatDistances();
-		}
-	}
 }
 
 // ==================== BEHAVIOR HELPERS ====================
@@ -216,29 +122,3 @@ float ANormalEnemy::GetAggressionMultiplier() const
 	return 1.0f;
 }
 
-void ANormalEnemy::AdjustCombatDistances()
-{
-	float AggressionMult = GetAggressionMultiplier();
-
-	if (AggressionMult > 1.0f)
-	{
-		// More aggressive - closer positioning, shorter wait times
-		CombatConfig.PositioningDistance = OriginalCombatConfig.PositioningDistance * 0.7f;
-		CombatConfig.MinPositioningTime = OriginalCombatConfig.MinPositioningTime * 0.5f;
-		CombatConfig.MaxPositioningTime = OriginalCombatConfig.MaxPositioningTime * 0.5f;
-	}
-	else if (AggressionMult < 1.0f)
-	{
-		// More cautious - further positioning, longer wait times
-		CombatConfig.PositioningDistance = OriginalCombatConfig.PositioningDistance * 1.3f;
-		CombatConfig.MinPositioningTime = OriginalCombatConfig.MinPositioningTime * 1.5f;
-		CombatConfig.MaxPositioningTime = OriginalCombatConfig.MaxPositioningTime * 1.5f;
-	}
-	else
-	{
-		// Normal - restore original values
-		CombatConfig.PositioningDistance = OriginalCombatConfig.PositioningDistance;
-		CombatConfig.MinPositioningTime = OriginalCombatConfig.MinPositioningTime;
-		CombatConfig.MaxPositioningTime = OriginalCombatConfig.MaxPositioningTime;
-	}
-}

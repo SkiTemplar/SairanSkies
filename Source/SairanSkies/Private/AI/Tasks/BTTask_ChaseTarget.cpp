@@ -4,7 +4,6 @@
 #include "Enemies/EnemyBase.h"
 #include "AI/EnemyAIController.h"
 #include "BehaviorTree/BehaviorTreeComponent.h"
-#include "BehaviorTree/BlackboardComponent.h"
 #include "Navigation/PathFollowingComponent.h"
 #include "AIController.h"
 
@@ -18,38 +17,29 @@ UBTTask_ChaseTarget::UBTTask_ChaseTarget()
 EBTNodeResult::Type UBTTask_ChaseTarget::ExecuteTask(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory)
 {
 	AEnemyAIController* AIController = Cast<AEnemyAIController>(OwnerComp.GetAIOwner());
-	if (!AIController)
-	{
-		return EBTNodeResult::Failed;
-	}
+	if (!AIController) return EBTNodeResult::Failed;
 
 	AEnemyBase* Enemy = AIController->GetControlledEnemy();
-	if (!Enemy)
-	{
-		return EBTNodeResult::Failed;
-	}
+	if (!Enemy) return EBTNodeResult::Failed;
 
 	AActor* Target = Enemy->GetCurrentTarget();
-	if (!Target)
-	{
-		return EBTNodeResult::Failed;
-	}
+	if (!Target) return EBTNodeResult::Failed;
 
 	Enemy->SetChaseSpeed();
 
-	float TargetDistance = bUsePositioningDistance ? 
-		Enemy->CombatConfig.PositioningDistance : 
-		Enemy->CombatConfig.MaxAttackDistance;
+	// MoveToActor acceptance radius is measured between capsule edges,
+	// but GetDistanceToTarget() measures between actor centers.
+	// Use a small acceptance so the AI gets close enough.
+	float MoveAcceptance = FMath::Max(Enemy->CombatConfig.MaxAttackDistance - 100.0f, 10.0f);
 
-	EPathFollowingRequestResult::Type MoveResult = AIController->MoveToActor(
-		Target,
-		TargetDistance
-	);
-
-	if (MoveResult == EPathFollowingRequestResult::Failed)
+	EPathFollowingRequestResult::Type Result = AIController->MoveToActor(Target, MoveAcceptance);
+	if (Result == EPathFollowingRequestResult::Failed)
 	{
 		return EBTNodeResult::Failed;
 	}
+
+	UE_LOG(LogTemp, Verbose, TEXT("Chase: %s persiguiendo a %s (dist: %.0f)"),
+		*Enemy->GetName(), *Target->GetName(), Enemy->GetDistanceToTarget());
 
 	return EBTNodeResult::InProgress;
 }
@@ -57,18 +47,10 @@ EBTNodeResult::Type UBTTask_ChaseTarget::ExecuteTask(UBehaviorTreeComponent& Own
 void UBTTask_ChaseTarget::TickTask(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory, float DeltaSeconds)
 {
 	AEnemyAIController* AIController = Cast<AEnemyAIController>(OwnerComp.GetAIOwner());
-	if (!AIController)
-	{
-		FinishLatentTask(OwnerComp, EBTNodeResult::Failed);
-		return;
-	}
+	if (!AIController) { FinishLatentTask(OwnerComp, EBTNodeResult::Failed); return; }
 
 	AEnemyBase* Enemy = AIController->GetControlledEnemy();
-	if (!Enemy)
-	{
-		FinishLatentTask(OwnerComp, EBTNodeResult::Failed);
-		return;
-	}
+	if (!Enemy) { FinishLatentTask(OwnerComp, EBTNodeResult::Failed); return; }
 
 	AActor* Target = Enemy->GetCurrentTarget();
 	if (!Target)
@@ -78,39 +60,35 @@ void UBTTask_ChaseTarget::TickTask(UBehaviorTreeComponent& OwnerComp, uint8* Nod
 		return;
 	}
 
-	float TargetDistance = bUsePositioningDistance ? 
-		Enemy->CombatConfig.PositioningDistance : 
-		Enemy->CombatConfig.MaxAttackDistance;
+	// Use center-to-center distance for the range check
+	float CurrentDist = Enemy->GetDistanceToTarget();
 
-	float CurrentDistance = Enemy->GetDistanceToTarget();
-	
-	if (CurrentDistance <= TargetDistance + AcceptanceRadius)
+	if (CurrentDist <= Enemy->CombatConfig.MaxAttackDistance)
 	{
 		AIController->StopMovement();
 		FinishLatentTask(OwnerComp, EBTNodeResult::Succeeded);
 		return;
 	}
 
+	// Re-request movement if stopped
 	EPathFollowingStatus::Type MoveStatus = AIController->GetMoveStatus();
 	if (MoveStatus == EPathFollowingStatus::Idle || MoveStatus == EPathFollowingStatus::Waiting)
 	{
-		AIController->MoveToActor(Target, TargetDistance);
+		float MoveAcceptance = FMath::Max(Enemy->CombatConfig.MaxAttackDistance - 100.0f, 10.0f);
+		AIController->MoveToActor(Target, MoveAcceptance);
 	}
 }
 
 EBTNodeResult::Type UBTTask_ChaseTarget::AbortTask(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory)
 {
 	AEnemyAIController* AIController = Cast<AEnemyAIController>(OwnerComp.GetAIOwner());
-	if (AIController)
-	{
-		AIController->StopMovement();
-	}
-
+	if (AIController) AIController->StopMovement();
 	return EBTNodeResult::Aborted;
 }
 
 FString UBTTask_ChaseTarget::GetStaticDescription() const
 {
-	return FString::Printf(TEXT("Chase target until within %s distance"), 
-		bUsePositioningDistance ? TEXT("positioning") : TEXT("attack"));
+	return TEXT("Chase target until in attack range");
 }
+
+

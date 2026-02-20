@@ -1,4 +1,4 @@
-﻿// SairanSkies - Character Principal
+// SairanSkies - Character Principal
 
 #pragma once
 
@@ -47,6 +47,23 @@ protected:
 
 public:	
 	virtual void Tick(float DeltaTime) override;
+
+	/** Override to route damage through CombatComponent parry/block system */
+	virtual float TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent,
+		AController* EventInstigator, AActor* DamageCauser) override;
+
+	// ========== HEALTH ==========
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Stats")
+	float MaxHealth = 100.0f;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Stats")
+	float CurrentHealth = 100.0f;
+
+	UFUNCTION(BlueprintPure, Category = "Stats")
+	float GetHealthPercent() const { return MaxHealth > 0.0f ? CurrentHealth / MaxHealth : 0.0f; }
+
+	UFUNCTION(BlueprintPure, Category = "Stats")
+	bool IsAlive() const { return CurrentHealth > 0.0f; }
 
 	// ========== COMPONENTS ==========
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera")

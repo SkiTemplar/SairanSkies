@@ -31,7 +31,6 @@ UEnemyAnimInstance::UEnemyAnimInstance()
 	bTurnLeft = false;
 
 	bIsAttacking = false;
-	bIsTaunting = false;
 	bIsTakingHit = false;
 	bIsInIdlePause = false;
 
@@ -116,9 +115,8 @@ void UEnemyAnimInstance::UpdateStateValues()
 	SuspicionLevel = OwnerEnemy->GetSuspicionLevel();
 	bIsInIdlePause = OwnerEnemy->IsInRandomPause();
 
-	// Determine if attacking/taunting based on state
+	// Determine if attacking based on state
 	bIsAttacking = (CurrentState == EEnemyState::Attacking);
-	bIsTaunting = (CurrentState == EEnemyState::Taunting);
 }
 
 void UEnemyAnimInstance::UpdateLookAt(float DeltaSeconds)
