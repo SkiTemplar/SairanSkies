@@ -523,8 +523,39 @@ void UCombatComponent::TriggerHitstop(EAttackType AttackType)
 
 void UCombatComponent::ResumeFromHitstop()
 {
+	if (bIsPerfectParryHitstop)
+	{
+		bIsPerfectParryHitstop = false;
+		StartPerfectParrySlowMo();
+		return;
+	}
+
 	UGameplayStatics::SetGlobalTimeDilation(GetWorld(), 1.0f);
 	UE_LOG(LogTemp, Log, TEXT("HITSTOP ENDED - Game speed resumed"));
+}
+
+void UCombatComponent::StartPerfectParrySlowMo()
+{
+	float Dilation = FMath::Clamp(PerfectParrySlowMoTimeDilation, 0.01f, 1.0f);
+	UGameplayStatics::SetGlobalTimeDilation(GetWorld(), Dilation);
+
+	UE_LOG(LogTemp, Log, TEXT("PERFECT PARRY SLOW-MO START - TimeDilation: %f, Duration: %f"), Dilation, PerfectParrySlowMoDuration);
+
+	// End slow-mo after the specified real-time duration
+	// Timer uses real time since global time is dilated
+	GetWorld()->GetTimerManager().SetTimer(
+		PerfectParrySlowMoTimer,
+		this,
+		&UCombatComponent::EndPerfectParrySlowMo,
+		PerfectParrySlowMoDuration,
+		false
+	);
+}
+
+void UCombatComponent::EndPerfectParrySlowMo()
+{
+	UGameplayStatics::SetGlobalTimeDilation(GetWorld(), 1.0f);
+	UE_LOG(LogTemp, Log, TEXT("PERFECT PARRY SLOW-MO ENDED - Game speed fully restored"));
 }
 
 void UCombatComponent::TriggerCameraShake(EAttackType AttackType)
@@ -669,8 +700,25 @@ void UCombatComponent::PlayParryFeedback(bool bPerfectParry)
 
 		// Trigger a strong camera shake for perfect parry
 		TriggerCameraShake(EAttackType::Heavy);
-		// Brief hitstop for impact
-		TriggerHitstop(EAttackType::Light);
+
+		// God of War style: hitstop freeze -> slow-motion window
+		bIsPerfectParryHitstop = true;
+		if (PerfectParryHitstopDuration > 0.0f)
+		{
+			UGameplayStatics::SetGlobalTimeDilation(GetWorld(), 0.01f);
+			GetWorld()->GetTimerManager().SetTimer(
+				HitstopTimer,
+				this,
+				&UCombatComponent::ResumeFromHitstop,
+				PerfectParryHitstopDuration,
+				false
+			);
+		}
+		else
+		{
+			// Skip hitstop, go straight to slow-mo
+			StartPerfectParrySlowMo();
+		}
 	}
 	else
 	{

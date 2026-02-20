@@ -134,6 +134,20 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|Parry")
 	USoundBase* BlockSound;
 
+	// ========== PERFECT PARRY SLOW-MOTION (God of War style) ==========
+
+	/** Duration of the initial hitstop freeze on perfect parry (seconds, real time) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|Parry|SlowMotion")
+	float PerfectParryHitstopDuration = 0.08f;
+
+	/** Duration of the slow-motion window after the hitstop ends (seconds, real time) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|Parry|SlowMotion")
+	float PerfectParrySlowMoDuration = 0.5f;
+
+	/** Time dilation during the slow-mo window (0.3 = 30% speed = 70% reduction) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|Parry|SlowMotion")
+	float PerfectParrySlowMoTimeDilation = 0.3f;
+
 	// ========== COMBO SETTINGS ==========
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|Combo")
 	int32 MaxLightCombo = 4;
@@ -274,6 +288,11 @@ private:
 	void TriggerCameraShake(EAttackType AttackType);
 	void ResumeFromHitstop();
 
+	/** Start slow-motion phase after perfect parry hitstop */
+	void StartPerfectParrySlowMo();
+	/** End slow-motion and fully restore time */
+	void EndPerfectParrySlowMo();
+
 	/** Play parry/block VFX and SFX */
 	void PlayParryFeedback(bool bPerfectParry);
 
@@ -282,6 +301,9 @@ private:
 	FTimerHandle ParryCooldownTimer;
 	FTimerHandle AttackEndTimer;
 	FTimerHandle HitstopTimer;
+	FTimerHandle PerfectParrySlowMoTimer;
+	/** Tracks whether the current hitstop is from a perfect parry (to chain into slow-mo) */
+	bool bIsPerfectParryHitstop = false;
 
 	TSet<AActor*> HitActorsThisAttack;
 	bool bHitLandedThisAttack = false;
