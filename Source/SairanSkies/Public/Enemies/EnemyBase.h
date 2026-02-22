@@ -15,6 +15,8 @@ class UAnimMontage;
 class UNiagaraSystem;
 class USoundBase;
 class UDamageNumberComponent;
+class UWidgetComponent;
+class UEnemyHealthBarWidget;
 
 UCLASS(Abstract)
 class SAIRANSKIES_API AEnemyBase : public ACharacter
@@ -62,6 +64,18 @@ public:
 	/** Floating damage numbers above the enemy head */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Enemy|UI")
 	UDamageNumberComponent* DamageNumberComponent;
+
+	/** Floating health bar above the enemy */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Enemy|UI")
+	UWidgetComponent* HealthBarWidgetComponent;
+
+	/** Widget class for enemy health bar (create a WBP inheriting from UEnemyHealthBarWidget) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Enemy|UI")
+	TSubclassOf<UEnemyHealthBarWidget> HealthBarWidgetClass;
+
+	/** Offset above enemy for the health bar (in cm) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Enemy|UI")
+	float HealthBarHeightOffset = 120.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|AI")
 	UBehaviorTree* BehaviorTree;

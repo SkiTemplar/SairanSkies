@@ -3,7 +3,9 @@
 #include "AI/Services/BTService_UpdateEnemyState.h"
 #include "Enemies/EnemyBase.h"
 #include "AI/EnemyAIController.h"
+#include "AI/GroupCombatManager.h"
 #include "BehaviorTree/BlackboardComponent.h"
+#include "Kismet/GameplayStatics.h"
 
 UBTService_UpdateEnemyState::UBTService_UpdateEnemyState()
 {
@@ -47,6 +49,16 @@ void UBTService_UpdateEnemyState::TickNode(UBehaviorTreeComponent& OwnerComp, ui
 	BlackboardComp->SetValueAsInt(AEnemyBase::BB_EnemyState, static_cast<int32>(Enemy->GetEnemyState()));
 	BlackboardComp->SetValueAsBool(AEnemyBase::BB_CanSeeTarget, Enemy->CanSeeTarget());
 	BlackboardComp->SetValueAsFloat(AEnemyBase::BB_DistanceToTarget, Enemy->GetDistanceToTarget());
+
+	// Update proximity priorities in GroupCombatManager
+	if (UGroupCombatManager* CombatManager = GetWorld()->GetSubsystem<UGroupCombatManager>())
+	{
+		if (Enemy->GetCurrentTarget())
+		{
+			CombatManager->UpdateProximityPriorities(Enemy->GetCurrentTarget()->GetActorLocation());
+		}
+	}
+
 	BlackboardComp->SetValueAsBool(AEnemyBase::BB_CanAttack, Enemy->CanJoinAttack() && Enemy->CanAttackNow());
 }
 

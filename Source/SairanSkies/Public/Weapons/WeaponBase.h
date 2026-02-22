@@ -1,4 +1,4 @@
-﻿// SairanSkies - Base Weapon Class (Greatsword)
+// SairanSkies - Base Weapon Class (Greatsword)
 
 #pragma once
 
@@ -9,6 +9,8 @@
 class UStaticMeshComponent;
 class UBoxComponent;
 class ASairanCharacter;
+class UNiagaraComponent;
+class UNiagaraSystem;
 
 UENUM(BlueprintType)
 enum class EWeaponState : uint8
@@ -41,6 +43,31 @@ public:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Weapon")
 	UBoxComponent* HitCollision;
+
+	// ========== SWING TRAIL (Lies of P style) ==========
+	/** Niagara component for the sword trail - stays attached to weapon */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Weapon|Trail")
+	UNiagaraComponent* SwingTrailComponent;
+
+	/** Normal swing trail VFX (white/blue arc) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Weapon|Trail")
+	UNiagaraSystem* NormalSwingTrailFX;
+
+	/** Blood trail VFX (red, activated when hitting an enemy mid-swing) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Weapon|Trail")
+	UNiagaraSystem* BloodSwingTrailFX;
+
+	/** Activate the swing trail (call at start of attack) */
+	UFUNCTION(BlueprintCallable, Category = "Weapon|Trail")
+	void ActivateSwingTrail();
+
+	/** Deactivate the swing trail (call at end of attack) */
+	UFUNCTION(BlueprintCallable, Category = "Weapon|Trail")
+	void DeactivateSwingTrail();
+
+	/** Switch from normal trail to blood trail (call on enemy hit) */
+	UFUNCTION(BlueprintCallable, Category = "Weapon|Trail")
+	void SwitchToBloodTrail();
 
 	// ========== WEAPON SETTINGS ==========
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Weapon|Placeholder")
@@ -96,4 +123,5 @@ private:
 	void SetupPlaceholderMesh();
 
 	bool bInBlockingStance = false;
+	bool bIsBloodTrailActive = false;
 };

@@ -1,4 +1,4 @@
-﻿// SairanSkies - Death Zone Actor Implementation
+// SairanSkies - Death Zone Actor Implementation
 
 #include "Core/DeathZone.h"
 #include "Components/BoxComponent.h"

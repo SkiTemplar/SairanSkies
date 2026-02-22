@@ -1,4 +1,4 @@
-﻿// SairanSkies - Main Game Mode Implementation
+// SairanSkies - Main Game Mode Implementation
 
 #include "Core/SairanGameMode.h"
 #include "Character/SairanCharacter.h"

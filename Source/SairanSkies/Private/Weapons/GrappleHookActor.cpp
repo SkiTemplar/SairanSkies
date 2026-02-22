@@ -1,4 +1,4 @@
-﻿// SairanSkies - Grapple Hook Visual Actor Implementation
+// SairanSkies - Grapple Hook Visual Actor Implementation
 
 #include "Weapons/GrappleHookActor.h"
 #include "Components/StaticMeshComponent.h"

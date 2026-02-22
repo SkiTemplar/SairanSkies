@@ -1,4 +1,4 @@
-﻿// SairanSkies - Combo Window Notify Implementation
+// SairanSkies - Combo Window Notify Implementation
 
 #include "Animation/AN_ComboWindow.h"
 #include "Character/SairanCharacter.h"

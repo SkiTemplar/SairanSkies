@@ -30,7 +30,7 @@ EBTNodeResult::Type UBTTask_ChaseTarget::ExecuteTask(UBehaviorTreeComponent& Own
 	// MoveToActor acceptance radius is measured between capsule edges,
 	// but GetDistanceToTarget() measures between actor centers.
 	// Use a small acceptance so the AI gets close enough.
-	float MoveAcceptance = FMath::Max(Enemy->CombatConfig.MaxAttackDistance - 100.0f, 10.0f);
+	float MoveAcceptance = FMath::Max(Enemy->CombatConfig.MaxAttackDistance - 100.0f, 400.0f);
 
 	EPathFollowingRequestResult::Type Result = AIController->MoveToActor(Target, MoveAcceptance);
 	if (Result == EPathFollowingRequestResult::Failed)

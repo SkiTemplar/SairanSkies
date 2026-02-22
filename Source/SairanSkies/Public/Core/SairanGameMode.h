@@ -1,4 +1,4 @@
-﻿// SairanSkies - Main Game Mode
+// SairanSkies - Main Game Mode
 
 #pragma once
 

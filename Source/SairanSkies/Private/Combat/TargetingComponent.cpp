@@ -1,4 +1,4 @@
-﻿// SairanSkies - Targeting Component Implementation (Arkham-style)
+// SairanSkies - Targeting Component Implementation (Arkham-style)
 
 #include "Combat/TargetingComponent.h"
 #include "Character/SairanCharacter.h"

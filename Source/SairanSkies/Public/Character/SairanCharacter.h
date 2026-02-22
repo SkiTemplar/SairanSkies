@@ -18,6 +18,7 @@ class UCloneComponent;
 class UCheckpointComponent;
 class AWeaponBase;
 class USceneComponent;
+class UPlayerHUDWidget;
 
 UENUM(BlueprintType)
 enum class ECharacterState : uint8
@@ -64,6 +65,18 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Stats")
 	bool IsAlive() const { return CurrentHealth > 0.0f; }
+
+	// ========== HUD ==========
+	/** Widget class for the player HUD (create a WBP inheriting from UPlayerHUDWidget) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "UI")
+	TSubclassOf<UPlayerHUDWidget> HUDWidgetClass;
+
+	UPROPERTY(BlueprintReadOnly, Category = "UI")
+	UPlayerHUDWidget* HUDWidget;
+
+	/** Update the HUD health bar */
+	UFUNCTION(BlueprintCallable, Category = "UI")
+	void UpdateHUD();
 
 	// ========== COMPONENTS ==========
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera")

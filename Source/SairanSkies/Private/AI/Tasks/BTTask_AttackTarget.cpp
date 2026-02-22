@@ -94,28 +94,35 @@ EBTNodeResult::Type UBTTask_AttackTarget::ExecuteTask(UBehaviorTreeComponent& Ow
 
 	CurrentHit = 0;
 	TotalHits = 1;
-	// MoveToActor measures between capsule edges, not centers.
-	// Use a small acceptance so enemy gets truly close.
 	ChosenAttackDist = FMath::Max(Enemy->CombatConfig.MaxAttackDistance - 100.0f, 10.0f);
 
-	// Si cooldown activo → esperar internamente (no fallar)
+	// If cooldown active → wait internally
 	if (!Enemy->CanAttack())
 	{
 		Phase = EAttackPhase::WaitCooldown;
 		PhaseTimer = 0.0f;
 		AIC->StopMovement();
-		UE_LOG(LogTemp, Log, TEXT("Attack: %s — esperando cooldown..."), *Enemy->GetName());
 		return EBTNodeResult::InProgress;
 	}
 
-	// Cooldown listo → ir directo a approach
-	Phase = EAttackPhase::Approach;
-	PhaseTimer = 0.0f;
-	Enemy->SetChaseSpeed();
-	AIC->MoveToActor(Target, ChosenAttackDist);
-
-	UE_LOG(LogTemp, Log, TEXT("Attack: %s — APPROACH (dist=%.0f, stop=%.0f)"),
-		*Enemy->GetName(), Enemy->GetDistanceToTarget(), ChosenAttackDist);
+	// The enemy should already be near the player (from the flanking circle).
+	// We just close the last gap from circle → melee range.
+	float Dist = Enemy->GetDistanceToTarget();
+	if (Dist <= Enemy->CombatConfig.MaxAttackDistance)
+	{
+		// Already in range — skip approach, go straight to WaitTurn
+		Phase = EAttackPhase::WaitTurn;
+		PhaseTimer = 0.0f;
+		AIC->StopMovement();
+	}
+	else
+	{
+		// Close the gap (short distance, from ring to melee)
+		Phase = EAttackPhase::Approach;
+		PhaseTimer = 0.0f;
+		Enemy->SetChaseSpeed();
+		AIC->MoveToActor(Target, ChosenAttackDist);
+	}
 
 	return EBTNodeResult::InProgress;
 }
@@ -178,7 +185,7 @@ void UBTTask_AttackTarget::TickTask(UBehaviorTreeComponent& OwnerComp, uint8* No
 	}
 
 	// ═══════════════════════════════════════════════════════════════════
-	// APPROACH — acercarse al rango
+	// APPROACH — close the last gap from circle → melee range
 	// ═══════════════════════════════════════════════════════════════════
 	case EAttackPhase::Approach:
 	{
@@ -189,7 +196,6 @@ void UBTTask_AttackTarget::TickTask(UBehaviorTreeComponent& OwnerComp, uint8* No
 			AIC->StopMovement();
 			Phase = EAttackPhase::WaitTurn;
 			PhaseTimer = 0.0f;
-			UE_LOG(LogTemp, Log, TEXT("Attack: %s — en rango (%.0f), esperando turno..."), *Enemy->GetName(), Dist);
 			break;
 		}
 
@@ -199,16 +205,18 @@ void UBTTask_AttackTarget::TickTask(UBehaviorTreeComponent& OwnerComp, uint8* No
 			AIC->MoveToActor(Target, ChosenAttackDist);
 		}
 
-		if (PhaseTimer >= 10.0f)
+		// Short timeout — the enemy was already in the circle nearby.
+		// If we can't close the gap in 4s, something's blocking us → go back to circle.
+		if (PhaseTimer >= 4.0f)
 		{
-			UE_LOG(LogTemp, Warning, TEXT("Attack: %s — timeout approach"), *Enemy->GetName());
+			UE_LOG(LogTemp, Log, TEXT("Attack: %s — approach timeout, returning to circle"), *Enemy->GetName());
 			FinishLatentTask(OwnerComp, EBTNodeResult::Failed);
 		}
 		break;
 	}
 
 	// ═══════════════════════════════════════════════════════════════════
-	// WAIT TURN — esperar hueco de atacante
+	// WAIT TURN — try to get an attack slot; if blocked, return to circle FAST
 	// ═══════════════════════════════════════════════════════════════════
 	case EAttackPhase::WaitTurn:
 	{
@@ -224,32 +232,16 @@ void UBTTask_AttackTarget::TickTask(UBehaviorTreeComponent& OwnerComp, uint8* No
 			Phase = EAttackPhase::WindUp;
 			PhaseTimer = 0.0f;
 
-			UE_LOG(LogTemp, Warning, TEXT("=== ATTACK START: %s → %s | %d golpes | dist=%.0f ==="),
+			UE_LOG(LogTemp, Warning, TEXT("=== ATTACK START: %s → %s | %d hits | dist=%.0f ==="),
 				*Enemy->GetName(), *Target->GetName(), TotalHits, Enemy->GetDistanceToTarget());
 			break;
 		}
 
-		// Diagnostic log every ~1 second while waiting
-		if (FMath::Fmod(PhaseTimer, 1.0f) < DeltaSeconds)
+		// Don't stall here — if we can't attack within 1.5s, go back to
+		// the circle so we don't block other enemies or stand around like idiots.
+		if (PhaseTimer >= 1.5f)
 		{
-			UE_LOG(LogTemp, Warning, TEXT("WaitTurn BLOCKED: %s | CanJoin=%d (attackers=%d/%d) | CanAttackNow=%d (bCanAttack=%d, State=%d) | dist=%.0f"),
-				*Enemy->GetName(),
-				Enemy->CanJoinAttack(), Enemy->GetAttackersCount(), Enemy->CombatConfig.MaxSimultaneousAttackers,
-				Enemy->CanAttackNow(), Enemy->CanAttack(), (int32)Enemy->GetEnemyState(),
-				Enemy->GetDistanceToTarget());
-		}
-
-		if (Enemy->GetDistanceToTarget() > Enemy->CombatConfig.MaxAttackDistance * 1.3f)
-		{
-			Phase = EAttackPhase::Approach;
-			PhaseTimer = 0.0f;
-			AIC->MoveToActor(Target, ChosenAttackDist);
-			break;
-		}
-
-		if (PhaseTimer >= MaxWaitTurnTime)
-		{
-			UE_LOG(LogTemp, Log, TEXT("Attack: %s — timeout esperando turno"), *Enemy->GetName());
+			UE_LOG(LogTemp, Log, TEXT("Attack: %s — no slot, returning to circle"), *Enemy->GetName());
 			FinishLatentTask(OwnerComp, EBTNodeResult::Failed);
 		}
 		break;

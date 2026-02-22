@@ -1,4 +1,4 @@
-﻿// SairanSkies - Animation Notify Implementation
+// SairanSkies - Animation Notify Implementation
 
 #include "Animation/AN_EnableHitDetection.h"
 #include "Character/SairanCharacter.h"

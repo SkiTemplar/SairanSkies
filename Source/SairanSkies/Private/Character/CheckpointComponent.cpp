@@ -1,4 +1,4 @@
-﻿// SairanSkies - Checkpoint Component Implementation
+// SairanSkies - Checkpoint Component Implementation
 
 #include "Character/CheckpointComponent.h"
 #include "Character/SairanCharacter.h"

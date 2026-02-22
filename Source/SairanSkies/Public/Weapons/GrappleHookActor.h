@@ -1,4 +1,4 @@
-﻿// SairanSkies - Grapple Hook Visual Actor
+// SairanSkies - Grapple Hook Visual Actor
 
 #pragma once
 

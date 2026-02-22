@@ -1,4 +1,4 @@
-﻿// SairanSkies - Damage Number Component Implementation
+// SairanSkies - Damage Number Component Implementation (individual floating numbers)
 
 #include "Enemies/DamageNumberComponent.h"
 #include "Components/TextRenderComponent.h"
@@ -13,172 +13,191 @@ UDamageNumberComponent::UDamageNumberComponent()
 void UDamageNumberComponent::BeginPlay()
 {
 	Super::BeginPlay();
-
-	AActor* Owner = GetOwner();
-	if (!Owner) return;
-
-	// Create the text render component attached to the owner
-	TextComponent = NewObject<UTextRenderComponent>(Owner, TEXT("DamageNumberText"));
-	if (TextComponent)
-	{
-		TextComponent->SetupAttachment(Owner->GetRootComponent());
-		TextComponent->SetRelativeLocation(FVector(0.0f, -LeftOffset, HeightOffset));
-		TextComponent->SetHorizontalAlignment(EHTA_Center);
-		TextComponent->SetVerticalAlignment(EVRTA_TextCenter);
-		TextComponent->SetWorldSize(TextSize);
-		TextComponent->SetTextRenderColor(FColor::Green);
-		TextComponent->SetText(FText::GetEmpty());
-		TextComponent->SetVisibility(false);
-		// Always face camera
-		TextComponent->SetAbsolute(false, false, false);
-		TextComponent->RegisterComponent();
-	}
 }
 
 void UDamageNumberComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
-	// Make text face the camera
-	if (TextComponent && bIsVisible)
+	APlayerCameraManager* CameraManager = UGameplayStatics::GetPlayerCameraManager(GetWorld(), 0);
+	FVector CameraLocation = CameraManager ? CameraManager->GetCameraLocation() : FVector::ZeroVector;
+
+	// Update all active floating numbers
+	for (int32 i = ActiveNumbers.Num() - 1; i >= 0; --i)
 	{
-		APlayerCameraManager* CameraManager = UGameplayStatics::GetPlayerCameraManager(GetWorld(), 0);
+		FFloatingDamageNumber& Num = ActiveNumbers[i];
+		if (!Num.TextComponent)
+		{
+			ActiveNumbers.RemoveAt(i);
+			continue;
+		}
+
+		Num.Lifetime += DeltaTime;
+
+		if (Num.Lifetime >= Num.MaxLifetime)
+		{
+			CleanupNumber(i);
+			continue;
+		}
+
+		// Float upward
+		FVector CurrentLoc = Num.TextComponent->GetComponentLocation();
+		CurrentLoc.Z += FloatUpSpeed * DeltaTime;
+		Num.TextComponent->SetWorldLocation(CurrentLoc);
+
+		// Face camera
 		if (CameraManager)
 		{
-			FVector CameraLocation = CameraManager->GetCameraLocation();
-			FVector TextLocation = TextComponent->GetComponentLocation();
-			FVector Direction = CameraLocation - TextLocation;
-			Direction.Z = 0.0f; // Keep upright
+			FVector Direction = CameraLocation - CurrentLoc;
+			Direction.Z = 0.0f;
 			if (!Direction.IsNearlyZero())
 			{
-				FRotator LookAtRotation = Direction.Rotation();
-				TextComponent->SetWorldRotation(LookAtRotation);
+				Num.TextComponent->SetWorldRotation(Direction.Rotation());
 			}
+		}
+
+		// Fade out (reduce opacity over lifetime)
+		float Alpha = 1.0f - (Num.Lifetime / Num.MaxLifetime);
+		// Scale the text size to simulate fade (TextRenderComponent doesn't support alpha easily)
+		float ScaledSize = TextSize * (0.5f + 0.5f * Alpha);
+		Num.TextComponent->SetWorldSize(ScaledSize);
+	}
+
+	// Death marker - face camera
+	if (bIsShowingDeath && DeathTextComponent && CameraManager)
+	{
+		FVector TextLoc = DeathTextComponent->GetComponentLocation();
+		FVector Direction = CameraLocation - TextLoc;
+		Direction.Z = 0.0f;
+		if (!Direction.IsNearlyZero())
+		{
+			DeathTextComponent->SetWorldRotation(Direction.Rotation());
 		}
 	}
 }
 
-void UDamageNumberComponent::AddDamage(float DamageAmount, float HealthPercent)
+void UDamageNumberComponent::SpawnDamageNumber(float DamageAmount, float HealthPercent, const FVector& WorldLocation)
 {
-	AccumulatedDamage += DamageAmount;
-	LastHealthPercent = FMath::Clamp(HealthPercent, 0.0f, 1.0f);
-	bIsShowingDeath = false;
+	AActor* Owner = GetOwner();
+	if (!Owner) return;
 
-	UpdateTextDisplay();
+	// Create a new TextRenderComponent at the hit location
+	UTextRenderComponent* NewText = NewObject<UTextRenderComponent>(Owner);
+	if (!NewText) return;
 
-	// Reset/extend the display timer
-	GetWorld()->GetTimerManager().SetTimer(
-		DisplayTimerHandle,
-		this,
-		&UDamageNumberComponent::OnDisplayTimerExpired,
-		DisplayDuration,
-		false
-	);
+	// Random scatter to avoid overlapping
+	FVector SpawnLoc = WorldLocation;
+	SpawnLoc.X += FMath::RandRange(-HorizontalScatter, HorizontalScatter);
+	SpawnLoc.Y += FMath::RandRange(-HorizontalScatter, HorizontalScatter);
+	SpawnLoc.Z += FMath::RandRange(0.0f, HorizontalScatter * 0.5f);
+
+	NewText->SetWorldLocation(SpawnLoc);
+	NewText->SetHorizontalAlignment(EHTA_Center);
+	NewText->SetVerticalAlignment(EVRTA_TextCenter);
+	NewText->SetWorldSize(TextSize);
+	NewText->SetAbsolute(true, true, true); // World space, not relative
+
+	// Set damage text
+	int32 DisplayDamage = FMath::RoundToInt(DamageAmount);
+	NewText->SetText(FText::FromString(FString::Printf(TEXT("%d"), DisplayDamage)));
+
+	// Set color based on health
+	FLinearColor DamageColor = GetColorForHealthPercent(FMath::Clamp(HealthPercent, 0.0f, 1.0f));
+	NewText->SetTextRenderColor(DamageColor.ToFColor(true));
+
+	NewText->RegisterComponent();
+
+	// Store in active list
+	FFloatingDamageNumber NewNumber;
+	NewNumber.TextComponent = NewText;
+	NewNumber.Lifetime = 0.0f;
+	NewNumber.MaxLifetime = NumberLifetime;
+	NewNumber.InitialLocation = SpawnLoc;
+	ActiveNumbers.Add(NewNumber);
 }
 
 void UDamageNumberComponent::ShowDeathMarker()
 {
-	bIsShowingDeath = true;
-	AccumulatedDamage = 0.0f;
+	AActor* Owner = GetOwner();
+	if (!Owner) return;
 
-	if (TextComponent)
+	bIsShowingDeath = true;
+
+	// Create death text above enemy
+	if (!DeathTextComponent)
 	{
-		TextComponent->SetText(FText::FromString(TEXT("X")));
-		FColor DeathFColor = DeathColor.ToFColor(true);
-		TextComponent->SetTextRenderColor(DeathFColor);
-		TextComponent->SetWorldSize(TextSize * 1.5f); // Bigger X
-		TextComponent->SetVisibility(true);
-		bIsVisible = true;
+		DeathTextComponent = NewObject<UTextRenderComponent>(Owner);
+		if (DeathTextComponent)
+		{
+			FVector DeathLoc = Owner->GetActorLocation() + FVector(0.0f, 0.0f, DeathMarkerHeightOffset);
+			DeathTextComponent->SetWorldLocation(DeathLoc);
+			DeathTextComponent->SetHorizontalAlignment(EHTA_Center);
+			DeathTextComponent->SetVerticalAlignment(EVRTA_TextCenter);
+			DeathTextComponent->SetWorldSize(TextSize * 1.5f);
+			DeathTextComponent->SetAbsolute(true, true, true);
+			DeathTextComponent->SetText(FText::FromString(TEXT("X")));
+			DeathTextComponent->SetTextRenderColor(DeathColor.ToFColor(true));
+			DeathTextComponent->RegisterComponent();
+		}
 	}
 
-	// Hide after a longer duration for death
-	GetWorld()->GetTimerManager().SetTimer(
-		DisplayTimerHandle,
-		this,
-		&UDamageNumberComponent::OnDisplayTimerExpired,
-		DisplayDuration * 2.0f,
-		false
-	);
+	// Auto-hide after a while
+	GetWorld()->GetTimerManager().SetTimer(DeathTimerHandle, [this]()
+	{
+		if (DeathTextComponent)
+		{
+			DeathTextComponent->SetVisibility(false);
+		}
+		bIsShowingDeath = false;
+	}, 3.0f, false);
 }
 
 void UDamageNumberComponent::ResetCombo()
 {
-	AccumulatedDamage = 0.0f;
-	LastHealthPercent = 1.0f;
+	// Clean up all active numbers
+	for (int32 i = ActiveNumbers.Num() - 1; i >= 0; --i)
+	{
+		CleanupNumber(i);
+	}
+	ActiveNumbers.Empty();
+
 	bIsShowingDeath = false;
-	HideText();
-	GetWorld()->GetTimerManager().ClearTimer(DisplayTimerHandle);
+	if (DeathTextComponent)
+	{
+		DeathTextComponent->DestroyComponent();
+		DeathTextComponent = nullptr;
+	}
+	GetWorld()->GetTimerManager().ClearTimer(DeathTimerHandle);
 }
 
-void UDamageNumberComponent::UpdateTextDisplay()
+void UDamageNumberComponent::CleanupNumber(int32 Index)
 {
-	if (!TextComponent) return;
-
-	// Format the accumulated damage as integer
-	int32 DisplayDamage = FMath::RoundToInt(AccumulatedDamage);
-	FString DamageText = FString::Printf(TEXT("%d"), DisplayDamage);
-	TextComponent->SetText(FText::FromString(DamageText));
-
-	// Use the 3-stage color system based on health thresholds
-	FLinearColor CurrentColor = GetColorForHealthPercent(LastHealthPercent);
-	FColor DisplayColor = CurrentColor.ToFColor(true);
-	TextComponent->SetTextRenderColor(DisplayColor);
-	TextComponent->SetWorldSize(TextSize);
-
-	TextComponent->SetVisibility(true);
-	bIsVisible = true;
+	if (ActiveNumbers.IsValidIndex(Index))
+	{
+		if (ActiveNumbers[Index].TextComponent)
+		{
+			ActiveNumbers[Index].TextComponent->DestroyComponent();
+		}
+		ActiveNumbers.RemoveAt(Index);
+	}
 }
 
 FLinearColor UDamageNumberComponent::GetColorForHealthPercent(float HealthPercent) const
 {
-	// 3 stages:
-	//   HP >= HighToMidThreshold        -> lerp FullHealthColor (at 100%) to MidHealthColor (at threshold)
-	//   MidToLowThreshold <= HP < High  -> lerp MidHealthColor (at high threshold) to ZeroHealthColor (at low threshold)
-	//   HP < MidToLowThreshold          -> solid ZeroHealthColor
-
 	if (HealthPercent >= HighToMidThreshold)
 	{
-		// Stage 1: Full -> Mid (green -> orange)
-		// Map [HighToMidThreshold, 1.0] to [0.0, 1.0]
 		float Range = 1.0f - HighToMidThreshold;
 		float Alpha = (Range > 0.0f) ? (HealthPercent - HighToMidThreshold) / Range : 1.0f;
 		return FMath::Lerp(MidHealthColor, FullHealthColor, Alpha);
 	}
 	else if (HealthPercent >= MidToLowThreshold)
 	{
-		// Stage 2: Mid -> Low (orange -> red)
-		// Map [MidToLowThreshold, HighToMidThreshold] to [0.0, 1.0]
 		float Range = HighToMidThreshold - MidToLowThreshold;
 		float Alpha = (Range > 0.0f) ? (HealthPercent - MidToLowThreshold) / Range : 0.0f;
 		return FMath::Lerp(ZeroHealthColor, MidHealthColor, Alpha);
 	}
 	else
 	{
-		// Stage 3: Critical - solid red
 		return ZeroHealthColor;
-	}
-}
-
-void UDamageNumberComponent::HideText()
-{
-	if (TextComponent)
-	{
-		TextComponent->SetVisibility(false);
-	}
-	bIsVisible = false;
-}
-
-void UDamageNumberComponent::OnDisplayTimerExpired()
-{
-	if (bIsShowingDeath)
-	{
-		HideText();
-		bIsShowingDeath = false;
-	}
-	else
-	{
-		// Reset accumulated damage when timer expires (combo break)
-		AccumulatedDamage = 0.0f;
-		HideText();
 	}
 }

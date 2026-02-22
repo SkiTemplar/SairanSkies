@@ -1,4 +1,4 @@
-﻿// SairanSkies - Combat Component
+// SairanSkies - Combat Component
 
 #pragma once
 

@@ -1,4 +1,4 @@
-﻿// SairanSkies - Custom Animation Instance
+// SairanSkies - Custom Animation Instance
 
 #pragma once
 

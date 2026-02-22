@@ -1,4 +1,4 @@
-﻿// SairanSkies - Targeting Component (Arkham-style auto targeting)
+// SairanSkies - Targeting Component (Arkham-style auto targeting)
 
 #pragma once
 

@@ -1,4 +1,4 @@
-﻿// SairanSkies - Combat Component Implementation
+// SairanSkies - Combat Component Implementation
 
 #include "Combat/CombatComponent.h"
 #include "Character/SairanCharacter.h"
@@ -52,6 +52,9 @@ void UCombatComponent::LightAttack()
 {
 	if (!OwnerCharacter) return;
 
+	// Cannot attack while blocking
+	if (bIsHoldingBlock) return;
+
 	// If already attacking, buffer the input
 	if (bIsAttacking)
 	{
@@ -66,6 +69,9 @@ void UCombatComponent::LightAttack()
 void UCombatComponent::StartHeavyAttack()
 {
 	if (!OwnerCharacter) return;
+
+	// Cannot attack while blocking
+	if (bIsHoldingBlock) return;
 
 	// If already attacking, buffer the input
 	if (bIsAttacking)
@@ -190,6 +196,14 @@ void UCombatComponent::ProcessBufferedInput()
 {
 	if (bInputBuffered)
 	{
+		// Don't process buffered attacks if blocking
+		if (bIsHoldingBlock)
+		{
+			bInputBuffered = false;
+			BufferedAttackType = EAttackType::None;
+			return;
+		}
+
 		bInputBuffered = false;
 		EAttackType BufferedType = BufferedAttackType;
 		BufferedAttackType = EAttackType::None;
@@ -298,11 +312,23 @@ void UCombatComponent::EnableHitDetection()
 	bHitDetectionEnabled = true;
 	HitActorsThisAttack.Empty();
 	bHitLandedThisAttack = false;
+
+	// Activate swing trail (Lies of P style)
+	if (OwnerCharacter && OwnerCharacter->EquippedWeapon)
+	{
+		OwnerCharacter->EquippedWeapon->ActivateSwingTrail();
+	}
 }
 
 void UCombatComponent::DisableHitDetection()
 {
 	bHitDetectionEnabled = false;
+
+	// Deactivate swing trail
+	if (OwnerCharacter && OwnerCharacter->EquippedWeapon)
+	{
+		OwnerCharacter->EquippedWeapon->DeactivateSwingTrail();
+	}
 }
 
 void UCombatComponent::PerformHitDetection()
@@ -432,6 +458,12 @@ void UCombatComponent::ApplyHitFeedback(AActor* HitActor, const FVector& HitLoca
 	if (!OwnerCharacter) return;
 
 	bHitLandedThisAttack = true;
+
+	// Switch sword trail to blood trail (Lies of P style)
+	if (OwnerCharacter && OwnerCharacter->EquippedWeapon)
+	{
+		OwnerCharacter->EquippedWeapon->SwitchToBloodTrail();
+	}
 
 	// 1. Apply knockback to enemy
 	float KnockbackToApply = (CurrentAttackType == EAttackType::Charged) ? ChargedKnockbackForce : KnockbackForce;

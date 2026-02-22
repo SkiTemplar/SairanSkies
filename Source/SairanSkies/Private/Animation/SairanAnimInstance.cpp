@@ -1,4 +1,4 @@
-﻿// SairanSkies - Custom Animation Instance Implementation
+// SairanSkies - Custom Animation Instance Implementation
 
 #include "Animation/SairanAnimInstance.h"
 #include "Character/SairanCharacter.h"

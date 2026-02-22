@@ -1,4 +1,4 @@
-﻿// SairanSkies - Checkpoint Component (auto-saves last grounded position)
+// SairanSkies - Checkpoint Component (auto-saves last grounded position)
 
 #pragma once
 

@@ -18,6 +18,9 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "Enemies/DamageNumberComponent.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/WidgetComponent.h"
+#include "UI/EnemyHealthBarWidget.h"
+#include "AI/GroupCombatManager.h"
 
 // Blackboard Keys
 const FName AEnemyBase::BB_TargetActor = TEXT("TargetActor");
@@ -50,6 +53,14 @@ AEnemyBase::AEnemyBase()
 
 	// Damage numbers component
 	DamageNumberComponent = CreateDefaultSubobject<UDamageNumberComponent>(TEXT("DamageNumberComponent"));
+
+	// Floating health bar
+	HealthBarWidgetComponent = CreateDefaultSubobject<UWidgetComponent>(TEXT("HealthBarWidget"));
+	HealthBarWidgetComponent->SetupAttachment(RootComponent);
+	HealthBarWidgetComponent->SetRelativeLocation(FVector(0.0f, 0.0f, 120.0f));
+	HealthBarWidgetComponent->SetWidgetSpace(EWidgetSpace::Screen);
+	HealthBarWidgetComponent->SetDrawSize(FVector2D(150.0f, 15.0f));
+	HealthBarWidgetComponent->SetVisibility(false); // Hidden at full health
 
 	// Enemies should NOT push the player's camera - ignore Camera trace channel
 	GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
@@ -91,6 +102,13 @@ void AEnemyBase::BeginPlay()
 	});
 
 	CurrentHealth = MaxHealth;
+
+	// Initialize floating health bar widget
+	if (HealthBarWidgetComponent && HealthBarWidgetClass)
+	{
+		HealthBarWidgetComponent->SetWidgetClass(HealthBarWidgetClass);
+		HealthBarWidgetComponent->SetRelativeLocation(FVector(0.0f, 0.0f, HealthBarHeightOffset));
+	}
 
 	if (GetCharacterMovement())
 	{
@@ -348,6 +366,16 @@ void AEnemyBase::LoseTarget()
 	if (CurrentTarget)
 	{
 		UnregisterAsAttacker();
+
+		// Unregister from GroupCombatManager
+		if (UWorld* World = GetWorld())
+		{
+			if (UGroupCombatManager* Manager = World->GetSubsystem<UGroupCombatManager>())
+			{
+				Manager->UnregisterCombatEnemy(this);
+			}
+		}
+
 		CurrentTarget = nullptr;
 		OnPlayerLost.Broadcast();
 
@@ -387,6 +415,16 @@ void AEnemyBase::SetTarget(AActor* NewTarget, EEnemySenseType SenseType)
 		AlertNearbyAllies(NewTarget);
 		OnPlayerDetected.Broadcast(NewTarget, SenseType);
 		PlayRandomSound(SoundConfig.AlertSounds);
+
+		// Register with GroupCombatManager
+		if (UWorld* World = GetWorld())
+		{
+			if (UGroupCombatManager* Manager = World->GetSubsystem<UGroupCombatManager>())
+			{
+				Manager->RegisterCombatEnemy(this);
+			}
+		}
+
 		SetEnemyState(EEnemyState::Chasing);
 	}
 }
@@ -444,6 +482,16 @@ void AEnemyBase::Die(AController* InstigatorController)
 	}
 
 	UnregisterAsAttacker();
+
+	// Unregister from GroupCombatManager
+	if (UWorld* World = GetWorld())
+	{
+		if (UGroupCombatManager* Manager = World->GetSubsystem<UGroupCombatManager>())
+		{
+			Manager->UnregisterCombatEnemy(this);
+		}
+	}
+
 	SetEnemyState(EEnemyState::Dead);
 	CurrentHealth = 0.0f;
 
@@ -454,6 +502,12 @@ void AEnemyBase::Die(AController* InstigatorController)
 	if (DamageNumberComponent)
 	{
 		DamageNumberComponent->ShowDeathMarker();
+	}
+
+	// Hide health bar on death
+	if (HealthBarWidgetComponent)
+	{
+		HealthBarWidgetComponent->SetVisibility(false);
 	}
 
 	if (GetCharacterMovement())
@@ -530,7 +584,15 @@ void AEnemyBase::ReceiveAlertFromAlly(AActor* Target, AEnemyBase* AlertingAlly)
 
 int32 AEnemyBase::GetAttackersCount() const
 {
-	// Purge stale/invalid pointers from the static list before counting
+	// Use GroupCombatManager if available
+	if (UWorld* World = GetWorld())
+	{
+		if (UGroupCombatManager* Manager = World->GetSubsystem<UGroupCombatManager>())
+		{
+			return Manager->GetActiveAttackerCount();
+		}
+	}
+	// Fallback to static list
 	ActiveAttackers.RemoveAll([](const AEnemyBase* Attacker)
 	{
 		return !IsValid(Attacker) || Attacker->IsDead();
@@ -540,6 +602,15 @@ int32 AEnemyBase::GetAttackersCount() const
 
 bool AEnemyBase::CanJoinAttack() const
 {
+	// Use GroupCombatManager if available
+	if (UWorld* World = GetWorld())
+	{
+		if (UGroupCombatManager* Manager = World->GetSubsystem<UGroupCombatManager>())
+		{
+			return Manager->CanEnemyAttack(const_cast<AEnemyBase*>(this));
+		}
+	}
+	// Fallback
 	return GetAttackersCount() < CombatConfig.MaxSimultaneousAttackers || bIsActiveAttacker;
 }
 
@@ -549,6 +620,16 @@ void AEnemyBase::RegisterAsAttacker()
 	{
 		bIsActiveAttacker = true;
 		ActiveAttackers.AddUnique(this);
+
+		// Register with GroupCombatManager
+		if (UWorld* World = GetWorld())
+		{
+			if (UGroupCombatManager* Manager = World->GetSubsystem<UGroupCombatManager>())
+			{
+				Manager->RequestAttackSlot(this);
+			}
+		}
+
 		UE_LOG(LogTemp, Log, TEXT("%s registered as attacker (%d total)"), *GetName(), ActiveAttackers.Num());
 	}
 }
@@ -559,6 +640,16 @@ void AEnemyBase::UnregisterAsAttacker()
 	{
 		bIsActiveAttacker = false;
 		ActiveAttackers.Remove(this);
+
+		// Unregister from GroupCombatManager
+		if (UWorld* World = GetWorld())
+		{
+			if (UGroupCombatManager* Manager = World->GetSubsystem<UGroupCombatManager>())
+			{
+				Manager->ReleaseAttackSlot(this);
+			}
+		}
+
 		UE_LOG(LogTemp, Log, TEXT("%s unregistered as attacker (%d total)"), *GetName(), ActiveAttackers.Num());
 	}
 }
@@ -977,7 +1068,18 @@ void AEnemyBase::TakeDamageAtLocation(float DamageAmount, AActor* DamageSource, 
 	// Update floating damage numbers
 	if (DamageNumberComponent)
 	{
-		DamageNumberComponent->AddDamage(DamageAmount, GetHealthPercent());
+		DamageNumberComponent->SpawnDamageNumber(DamageAmount, GetHealthPercent(), HitWorldLocation);
+	}
+
+	// Update floating health bar
+	if (HealthBarWidgetComponent)
+	{
+		HealthBarWidgetComponent->SetVisibility(true);
+		UEnemyHealthBarWidget* HealthBarWidget = Cast<UEnemyHealthBarWidget>(HealthBarWidgetComponent->GetUserWidgetObject());
+		if (HealthBarWidget)
+		{
+			HealthBarWidget->UpdateHealth(GetHealthPercent());
+		}
 	}
 
 	if (!CurrentTarget && DamageSource)

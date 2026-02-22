@@ -1,4 +1,4 @@
-﻿// SairanSkies - Animation Notify for combo input window
+// SairanSkies - Animation Notify for combo input window
 
 #pragma once
 

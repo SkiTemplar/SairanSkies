@@ -1,4 +1,4 @@
-﻿// SairanSkies - Grapple Hook Component
+// SairanSkies - Grapple Hook Component
 
 #pragma once
 

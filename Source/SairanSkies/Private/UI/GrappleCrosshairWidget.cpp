@@ -1,4 +1,4 @@
-﻿// SairanSkies - Grapple Crosshair Widget Implementation
+// SairanSkies - Grapple Crosshair Widget Implementation
 
 #include "UI/GrappleCrosshairWidget.h"
 #include "Components/Image.h"

@@ -1,4 +1,4 @@
-﻿// SairanSkies - Clone/Teleport Component (It Takes Two style)
+// SairanSkies - Clone/Teleport Component (It Takes Two style)
 
 #pragma once
 

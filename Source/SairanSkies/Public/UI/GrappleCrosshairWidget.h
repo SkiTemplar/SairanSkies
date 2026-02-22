@@ -1,4 +1,4 @@
-﻿// SairanSkies - Grapple Crosshair Widget
+// SairanSkies - Grapple Crosshair Widget
 
 #pragma once
 

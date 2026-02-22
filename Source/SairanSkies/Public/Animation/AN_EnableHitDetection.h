@@ -1,4 +1,4 @@
-﻿// SairanSkies - Animation Notify for enabling hit detection
+// SairanSkies - Animation Notify for enabling hit detection
 
 #pragma once
 

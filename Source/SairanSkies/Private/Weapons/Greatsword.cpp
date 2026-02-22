@@ -1,4 +1,4 @@
-﻿// SairanSkies - Greatsword Implementation
+// SairanSkies - Greatsword Implementation
 
 #include "Weapons/Greatsword.h"
 

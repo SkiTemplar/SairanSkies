@@ -15,6 +15,7 @@
 #include "Character/CloneComponent.h"
 #include "Character/CheckpointComponent.h"
 #include "Weapons/WeaponBase.h"
+#include "UI/PlayerHUDWidget.h"
 
 ASairanCharacter::ASairanCharacter()
 {
@@ -127,6 +128,21 @@ void ASairanCharacter::BeginPlay()
 
 	// Initialize health
 	CurrentHealth = MaxHealth;
+
+	// Create and display HUD widget
+	if (HUDWidgetClass)
+	{
+		APlayerController* PC = Cast<APlayerController>(Controller);
+		if (PC)
+		{
+			HUDWidget = CreateWidget<UPlayerHUDWidget>(PC, HUDWidgetClass);
+			if (HUDWidget)
+			{
+				HUDWidget->AddToViewport();
+				UpdateHUD();
+			}
+		}
+	}
 }
 
 // ========== DAMAGE / PARRY / BLOCK ==========
@@ -134,6 +150,13 @@ float ASairanCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const
 	AController* EventInstigator, AActor* DamageCauser)
 {
 	if (CurrentHealth <= 0.0f) return 0.0f;
+
+	// Dash i-frames: invulnerable during dash
+	if (bIsDashing || CurrentState == ECharacterState::Dashing)
+	{
+		UE_LOG(LogTemp, Log, TEXT("Player: DASH i-frame — damage ignored"));
+		return 0.0f;
+	}
 
 	float DamageApplied = DamageAmount;
 
@@ -150,6 +173,9 @@ float ASairanCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const
 
 	// Apply remaining damage
 	CurrentHealth = FMath::Clamp(CurrentHealth - DamageApplied, 0.0f, MaxHealth);
+
+	// Update HUD
+	UpdateHUD();
 
 	UE_LOG(LogTemp, Warning, TEXT("Player: HP %.0f/%.0f (took %.1f from %s%s)"),
 		CurrentHealth, MaxHealth, DamageApplied, *GetNameSafe(DamageCauser),
@@ -344,6 +370,12 @@ void ASairanCharacter::LightAttack(const FInputActionValue& Value)
 	{
 		return;
 	}
+
+	// Cannot attack while blocking
+	if (CombatComponent && CombatComponent->bIsHoldingBlock)
+	{
+		return;
+	}
 	
 	if (CombatComponent && CanPerformAction() && bIsWeaponDrawn)
 	{
@@ -355,6 +387,12 @@ void ASairanCharacter::HeavyAttackStart(const FInputActionValue& Value)
 {
 	// Cannot attack while aiming grapple
 	if (GrappleComponent && GrappleComponent->IsAiming())
+	{
+		return;
+	}
+
+	// Cannot attack while blocking
+	if (CombatComponent && CombatComponent->bIsHoldingBlock)
 	{
 		return;
 	}
@@ -596,6 +634,16 @@ void ASairanCharacter::CloneActivate(const FInputActionValue& Value)
 	if (CloneComponent && CanPerformAction())
 	{
 		CloneComponent->HandleCloneInput();
+	}
+}
+
+// ========== HUD ==========
+
+void ASairanCharacter::UpdateHUD()
+{
+	if (HUDWidget)
+	{
+		HUDWidget->UpdateHealth(GetHealthPercent());
 	}
 }
 

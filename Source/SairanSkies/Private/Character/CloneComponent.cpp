@@ -1,4 +1,4 @@
-﻿// SairanSkies - Clone/Teleport Component Implementation
+// SairanSkies - Clone/Teleport Component Implementation
 
 #include "Character/CloneComponent.h"
 #include "Character/SairanCharacter.h"

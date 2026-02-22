@@ -1,4 +1,4 @@
-﻿// SairanSkies - Base Weapon Implementation
+// SairanSkies - Base Weapon Implementation
 
 #include "Weapons/WeaponBase.h"
 #include "Character/SairanCharacter.h"
@@ -7,6 +7,8 @@
 #include "Components/BoxComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "NiagaraComponent.h"
+#include "NiagaraSystem.h"
 
 AWeaponBase::AWeaponBase()
 {
@@ -28,6 +30,11 @@ AWeaponBase::AWeaponBase()
 	HitCollision->SetGenerateOverlapEvents(true);
 	HitCollision->SetCollisionResponseToAllChannels(ECR_Ignore);
 	HitCollision->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
+
+	// Swing trail Niagara component (Lies of P style)
+	SwingTrailComponent = CreateDefaultSubobject<UNiagaraComponent>(TEXT("SwingTrail"));
+	SwingTrailComponent->SetupAttachment(WeaponMesh);
+	SwingTrailComponent->SetAutoActivate(false);
 }
 
 void AWeaponBase::BeginPlay()
@@ -210,6 +217,43 @@ void AWeaponBase::SetBlockingStance(bool bIsBlocking)
 	{
 		// Return to hand position
 		AttachToHand();
+	}
+}
+
+// ========== SWING TRAIL SYSTEM (Lies of P) ==========
+
+void AWeaponBase::ActivateSwingTrail()
+{
+	bIsBloodTrailActive = false;
+	
+	if (SwingTrailComponent)
+	{
+		if (NormalSwingTrailFX)
+		{
+			SwingTrailComponent->SetAsset(NormalSwingTrailFX);
+		}
+		SwingTrailComponent->Activate(true);
+	}
+}
+
+void AWeaponBase::DeactivateSwingTrail()
+{
+	if (SwingTrailComponent)
+	{
+		SwingTrailComponent->Deactivate();
+	}
+	bIsBloodTrailActive = false;
+}
+
+void AWeaponBase::SwitchToBloodTrail()
+{
+	if (bIsBloodTrailActive) return;
+	bIsBloodTrailActive = true;
+
+	if (SwingTrailComponent && BloodSwingTrailFX)
+	{
+		SwingTrailComponent->SetAsset(BloodSwingTrailFX);
+		SwingTrailComponent->Activate(true);
 	}
 }
 

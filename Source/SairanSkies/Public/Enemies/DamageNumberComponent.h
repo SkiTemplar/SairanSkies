@@ -1,4 +1,4 @@
-﻿// SairanSkies - Damage Number Component (shows stacking combo damage above enemy)
+// SairanSkies - Damage Number Component (spawns individual floating damage numbers at hit location)
 
 #pragma once
 
@@ -6,12 +6,28 @@
 #include "Components/ActorComponent.h"
 #include "DamageNumberComponent.generated.h"
 
-class UWidgetComponent;
 class UTextRenderComponent;
 
 /**
- * Attach to enemies. Shows stacking damage numbers above their head.
- * Numbers go green -> red based on remaining health percentage.
+ * Stores data for a single floating damage number instance
+ */
+USTRUCT()
+struct FFloatingDamageNumber
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	UTextRenderComponent* TextComponent = nullptr;
+
+	float Lifetime = 0.0f;
+	float MaxLifetime = 1.0f;
+	FVector InitialLocation = FVector::ZeroVector;
+};
+
+/**
+ * Attach to enemies. Spawns individual damage numbers at hit locations.
+ * Numbers float upward and fade out over 1 second.
+ * Color goes green -> red based on remaining health percentage.
  * Shows X on death.
  */
 UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent))
@@ -30,76 +46,74 @@ public:
 
 	// ========== MAIN FUNCTIONS ==========
 
-	/** Add damage to the combo counter and display it */
+	/** Spawn a floating damage number at a specific world location */
 	UFUNCTION(BlueprintCallable, Category = "DamageNumbers")
-	void AddDamage(float DamageAmount, float HealthPercent);
+	void SpawnDamageNumber(float DamageAmount, float HealthPercent, const FVector& WorldLocation);
 
-	/** Show death marker (X) */
+	/** Show death marker (X) above the enemy */
 	UFUNCTION(BlueprintCallable, Category = "DamageNumbers")
 	void ShowDeathMarker();
 
-	/** Reset the combo counter */
+	/** Reset - clears all active numbers */
 	UFUNCTION(BlueprintCallable, Category = "DamageNumbers")
 	void ResetCombo();
 
 	// ========== SETTINGS ==========
 
-	/** How long the damage number stays visible after last hit */
+	/** How long each damage number lives (seconds) */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "DamageNumbers|Settings")
-	float DisplayDuration = 3.0f;
+	float NumberLifetime = 1.0f;
 
-	/** Offset above the enemy's head (in cm) */
+	/** How fast numbers float upward (units/sec) */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "DamageNumbers|Settings")
-	float HeightOffset = 120.0f;
+	float FloatUpSpeed = 80.0f;
 
-	/** Horizontal offset to the left */
+	/** Random horizontal scatter when spawning (units) */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "DamageNumbers|Settings")
-	float LeftOffset = 40.0f;
+	float HorizontalScatter = 20.0f;
 
 	/** Text size */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "DamageNumbers|Settings")
 	float TextSize = 24.0f;
 
-	/** Color at full health (stage 1 - healthy) */
+	/** Offset above the enemy's head for death marker (in cm) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "DamageNumbers|Settings")
+	float DeathMarkerHeightOffset = 120.0f;
+
+	/** Color at full health */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "DamageNumbers|Colors")
 	FLinearColor FullHealthColor = FLinearColor(0.0f, 1.0f, 0.0f, 1.0f); // Green
 
-	/** Color at mid health (stage 2 - warning) */
+	/** Color at mid health */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "DamageNumbers|Colors")
 	FLinearColor MidHealthColor = FLinearColor(1.0f, 0.65f, 0.0f, 1.0f); // Orange
 
-	/** Color at zero health (stage 3 - critical) */
+	/** Color at zero health */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "DamageNumbers|Colors")
 	FLinearColor ZeroHealthColor = FLinearColor(1.0f, 0.0f, 0.0f, 1.0f); // Red
 
-	/** Health % threshold to transition from FullHealth to MidHealth color (0-1). 
-	 *  e.g. 0.6 means green->orange happens between 100%-60% health */
+	/** Health % threshold: FullHealth -> MidHealth */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "DamageNumbers|Colors", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float HighToMidThreshold = 0.6f;
 
-	/** Health % threshold to transition from MidHealth to ZeroHealth color (0-1).
-	 *  e.g. 0.25 means orange->red happens between 60%-25% health. Below this is full red. */
+	/** Health % threshold: MidHealth -> ZeroHealth */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "DamageNumbers|Colors", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float MidToLowThreshold = 0.25f;
 
 	/** Color for the death X marker */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "DamageNumbers|Settings")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "DamageNumbers|Colors")
 	FLinearColor DeathColor = FLinearColor(1.0f, 0.0f, 0.0f, 1.0f);
 
 private:
-	void UpdateTextDisplay();
-	void HideText();
-	void OnDisplayTimerExpired();
-	/** Calculate color based on health % using the 3-stage threshold system */
 	FLinearColor GetColorForHealthPercent(float HealthPercent) const;
+	void CleanupNumber(int32 Index);
 
 	UPROPERTY()
-	UTextRenderComponent* TextComponent;
+	TArray<FFloatingDamageNumber> ActiveNumbers;
 
-	float AccumulatedDamage = 0.0f;
-	float LastHealthPercent = 1.0f;
+	UPROPERTY()
+	UTextRenderComponent* DeathTextComponent = nullptr;
+
 	bool bIsShowingDeath = false;
-	bool bIsVisible = false;
-
-	FTimerHandle DisplayTimerHandle;
+	FTimerHandle DeathTimerHandle;
 };

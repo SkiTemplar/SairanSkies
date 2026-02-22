@@ -1,4 +1,4 @@
-﻿// SairanSkies - Greatsword Weapon
+// SairanSkies - Greatsword Weapon
 
 #pragma once
 

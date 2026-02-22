@@ -1,4 +1,4 @@
-﻿// SairanSkies - Death Zone Actor
+// SairanSkies - Death Zone Actor
 
 #pragma once
 
