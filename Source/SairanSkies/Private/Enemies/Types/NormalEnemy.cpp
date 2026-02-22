@@ -69,11 +69,11 @@ void ANormalEnemy::Attack()
 		return;
 	}
 
-	// Set attack state and start cooldown
-	// Note: actual damage is applied by BTTask_AttackTarget
+	// Let base class handle cooldown and sounds
+	Super::Attack();
+
+	// Set attack state
 	SetEnemyState(EEnemyState::Attacking);
-	bCanAttack = false;
-	AttackCooldownTimer = CombatConfig.AttackCooldown;
 }
 
 

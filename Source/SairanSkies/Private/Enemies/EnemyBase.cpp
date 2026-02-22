@@ -84,6 +84,12 @@ void AEnemyBase::BeginPlay()
 {
 	Super::BeginPlay();
 
+	// Clean up any stale attackers from previous PIE sessions
+	ActiveAttackers.RemoveAll([](const AEnemyBase* Attacker)
+	{
+		return !IsValid(Attacker);
+	});
+
 	CurrentHealth = MaxHealth;
 
 	if (GetCharacterMovement())
@@ -95,6 +101,15 @@ void AEnemyBase::BeginPlay()
 	{
 		SetEnemyState(EEnemyState::Patrolling);
 	}
+}
+
+void AEnemyBase::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	// Always clean up when this enemy is removed
+	UnregisterAsAttacker();
+	ActiveAttackers.Remove(this);
+	
+	Super::EndPlay(EndPlayReason);
 }
 
 void AEnemyBase::Tick(float DeltaTime)
@@ -515,6 +530,11 @@ void AEnemyBase::ReceiveAlertFromAlly(AActor* Target, AEnemyBase* AlertingAlly)
 
 int32 AEnemyBase::GetAttackersCount() const
 {
+	// Purge stale/invalid pointers from the static list before counting
+	ActiveAttackers.RemoveAll([](const AEnemyBase* Attacker)
+	{
+		return !IsValid(Attacker) || Attacker->IsDead();
+	});
 	return ActiveAttackers.Num();
 }
 

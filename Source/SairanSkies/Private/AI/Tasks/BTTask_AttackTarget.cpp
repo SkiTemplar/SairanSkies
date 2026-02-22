@@ -229,6 +229,16 @@ void UBTTask_AttackTarget::TickTask(UBehaviorTreeComponent& OwnerComp, uint8* No
 			break;
 		}
 
+		// Diagnostic log every ~1 second while waiting
+		if (FMath::Fmod(PhaseTimer, 1.0f) < DeltaSeconds)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("WaitTurn BLOCKED: %s | CanJoin=%d (attackers=%d/%d) | CanAttackNow=%d (bCanAttack=%d, State=%d) | dist=%.0f"),
+				*Enemy->GetName(),
+				Enemy->CanJoinAttack(), Enemy->GetAttackersCount(), Enemy->CombatConfig.MaxSimultaneousAttackers,
+				Enemy->CanAttackNow(), Enemy->CanAttack(), (int32)Enemy->GetEnemyState(),
+				Enemy->GetDistanceToTarget());
+		}
+
 		if (Enemy->GetDistanceToTarget() > Enemy->CombatConfig.MaxAttackDistance * 1.3f)
 		{
 			Phase = EAttackPhase::Approach;

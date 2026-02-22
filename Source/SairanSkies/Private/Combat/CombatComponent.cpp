@@ -496,27 +496,33 @@ void UCombatComponent::TriggerHitstop(EAttackType AttackType)
 	switch (AttackType)
 	{
 		case EAttackType::Heavy:
-			Duration = HitstopDuration * 2.0f; // Double for heavy attacks
+			Duration = HitstopDuration * 2.0f;
 			break;
 		case EAttackType::Charged:
-			Duration = HitstopDuration * 3.0f; // Triple for charged attacks
+			Duration = HitstopDuration * 3.0f;
 			break;
 		default:
 			Duration = HitstopDuration;
 			break;
 	}
 
-	UE_LOG(LogTemp, Log, TEXT("🎯 HITSTOP TRIGGERED - Type: %d, Duration: %f"), (int)AttackType, Duration);
+	UE_LOG(LogTemp, Log, TEXT("HITSTOP TRIGGERED - Type: %d, Duration(real): %f"), (int)AttackType, Duration);
 
 	// Pause the game briefly for impact feel
-	UGameplayStatics::SetGlobalTimeDilation(GetWorld(), 0.1f);
+	UGameplayStatics::SetGlobalTimeDilation(GetWorld(), 0.01f);
 
-	// Resume after hitstop duration
+	// IMPORTANT: We need to use a real-time delay because the timer manager
+	// is affected by time dilation. With dilation at 0.01, a 0.05s timer 
+	// would take 5 real seconds. Instead we use FTimerDelegate with the
+	// timer rate adjusted to compensate for the dilation.
+	float CurrentDilation = UGameplayStatics::GetGlobalTimeDilation(GetWorld());
+	float AdjustedDuration = Duration * CurrentDilation; // Scale down so real-world time is correct
+
 	GetWorld()->GetTimerManager().SetTimer(
 		HitstopTimer,
 		this,
 		&UCombatComponent::ResumeFromHitstop,
-		Duration,
+		AdjustedDuration,
 		false
 	);
 }
@@ -539,15 +545,20 @@ void UCombatComponent::StartPerfectParrySlowMo()
 	float Dilation = FMath::Clamp(PerfectParrySlowMoTimeDilation, 0.01f, 1.0f);
 	UGameplayStatics::SetGlobalTimeDilation(GetWorld(), Dilation);
 
-	UE_LOG(LogTemp, Log, TEXT("PERFECT PARRY SLOW-MO START - TimeDilation: %f, Duration: %f"), Dilation, PerfectParrySlowMoDuration);
+	UE_LOG(LogTemp, Warning, TEXT("PERFECT PARRY SLOW-MO START - TimeDilation: %f, RealDuration: %f"), Dilation, PerfectParrySlowMoDuration);
 
-	// End slow-mo after the specified real-time duration
-	// Timer uses real time since global time is dilated
+	// Timer manager runs in game-time, so we must compensate:
+	// We want PerfectParrySlowMoDuration in REAL seconds.
+	// Game-time runs at (Dilation) speed, so game-timer of X fires after X/Dilation real seconds.
+	// To get the timer to fire after PerfectParrySlowMoDuration real seconds:
+	//   GameTimerValue = PerfectParrySlowMoDuration * Dilation
+	float AdjustedDuration = PerfectParrySlowMoDuration * Dilation;
+
 	GetWorld()->GetTimerManager().SetTimer(
 		PerfectParrySlowMoTimer,
 		this,
 		&UCombatComponent::EndPerfectParrySlowMo,
-		PerfectParrySlowMoDuration,
+		AdjustedDuration,
 		false
 	);
 }
@@ -555,7 +566,7 @@ void UCombatComponent::StartPerfectParrySlowMo()
 void UCombatComponent::EndPerfectParrySlowMo()
 {
 	UGameplayStatics::SetGlobalTimeDilation(GetWorld(), 1.0f);
-	UE_LOG(LogTemp, Log, TEXT("PERFECT PARRY SLOW-MO ENDED - Game speed fully restored"));
+	UE_LOG(LogTemp, Warning, TEXT("PERFECT PARRY SLOW-MO ENDED - Game speed fully restored"));
 }
 
 void UCombatComponent::TriggerCameraShake(EAttackType AttackType)
@@ -706,13 +717,20 @@ void UCombatComponent::PlayParryFeedback(bool bPerfectParry)
 		if (PerfectParryHitstopDuration > 0.0f)
 		{
 			UGameplayStatics::SetGlobalTimeDilation(GetWorld(), 0.01f);
+
+			// Compensate timer for time dilation (same fix as TriggerHitstop)
+			float AdjustedDuration = PerfectParryHitstopDuration * 0.01f;
+
 			GetWorld()->GetTimerManager().SetTimer(
 				HitstopTimer,
 				this,
 				&UCombatComponent::ResumeFromHitstop,
-				PerfectParryHitstopDuration,
+				AdjustedDuration,
 				false
 			);
+			
+			UE_LOG(LogTemp, Warning, TEXT("PERFECT PARRY HITSTOP - Freeze: %fs (adjusted: %fs), then SlowMo: %fs at %f dilation"),
+				PerfectParryHitstopDuration, AdjustedDuration, PerfectParrySlowMoDuration, PerfectParrySlowMoTimeDilation);
 		}
 		else
 		{
