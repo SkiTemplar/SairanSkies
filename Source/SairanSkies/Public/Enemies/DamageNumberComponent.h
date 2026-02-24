@@ -8,6 +8,7 @@
 
 class UTextRenderComponent;
 class UFont;
+class UMaterialInterface;
 
 /**
  * Stores data for a single floating damage number instance
@@ -64,6 +65,23 @@ public:
 	/** Font to use for damage numbers (leave null for default) */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "DamageNumbers|Settings")
 	UFont* DamageFont = nullptr;
+
+	/**
+	 * Optional: Material to use for the damage number text.
+	 * Use this when your custom Font does not render correctly (invisible text).
+	 *
+	 * HOW TO SET IT UP:
+	 * 1. In the Content Browser, right-click → Material
+	 * 2. Set Blend Mode = Translucent, Shading Model = Unlit
+	 * 3. Add a "TextureObjectParameter" named "Font" (or leave it for UE to fill)
+	 * 4. Add a "VectorParameter" named "Color" and plug it into Emissive Color
+	 * 5. Assign this material here AND in the Font asset's "Font Material" slot
+	 *
+	 * If left null, the font's own material will be used (works fine with default font,
+	 * but custom fonts may need this override to show color correctly).
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "DamageNumbers|Settings")
+	UMaterialInterface* FontMaterial = nullptr;
 
 	/** How long each damage number lives (seconds) */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "DamageNumbers|Settings")

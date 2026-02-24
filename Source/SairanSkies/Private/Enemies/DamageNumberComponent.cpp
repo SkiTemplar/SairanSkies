@@ -4,6 +4,8 @@
 #include "Components/TextRenderComponent.h"
 #include "Engine/World.h"
 #include "Engine/Font.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "Materials/MaterialInterface.h"
 #include "Kismet/GameplayStatics.h"
 
 UDamageNumberComponent::UDamageNumberComponent()
@@ -98,21 +100,48 @@ void UDamageNumberComponent::SpawnDamageNumber(float DamageAmount, float HealthP
 	NewText->SetWorldSize(TextSize);
 	NewText->SetAbsolute(true, true, true); // World space, not relative
 
-	// Apply custom font if assigned
+	// Apply custom font BEFORE RegisterComponent so the internal material is built with the correct font
 	if (DamageFont)
 	{
 		NewText->SetFont(DamageFont);
 	}
 
-	// Set damage text
+	// If a manual FontMaterial override is set, apply it before registering so the render proxy
+	// is created with the correct material from the start (avoids the invisible-text problem with
+	// custom fonts whose internal material doesn't expose a Color parameter).
+	if (FontMaterial)
+	{
+		NewText->SetMaterial(0, FontMaterial);
+	}
+
+	// Set damage text BEFORE register so geometry is built correctly
 	int32 DisplayDamage = FMath::RoundToInt(DamageAmount);
 	NewText->SetText(FText::FromString(FString::Printf(TEXT("%d"), DisplayDamage)));
 
-	// Set color based on health
+	// Register the component so it gets a render proxy and material
+	NewText->RegisterComponent();
+
+	// Get the color for this damage number
 	FLinearColor DamageColor = GetColorForHealthPercent(FMath::Clamp(HealthPercent, 0.0f, 1.0f));
+
+	// Apply color.  We try both paths:
+	// 1. SetTextRenderColor — works with the default UE font material.
+	// 2. Dynamic material "Color" parameter — works with custom font materials that expose that param.
 	NewText->SetTextRenderColor(DamageColor.ToFColor(true));
 
-	NewText->RegisterComponent();
+	// Create a dynamic material instance so we can drive the "Color" vector parameter at runtime
+	// (needed for the fade-out effect in Tick and for custom font materials).
+	if (UMaterialInterface* BaseMat = NewText->GetMaterial(0))
+	{
+		UMaterialInstanceDynamic* DynMat = UMaterialInstanceDynamic::Create(BaseMat, NewText);
+		if (DynMat)
+		{
+			DynMat->SetVectorParameterValue(FName("Color"), DamageColor);
+			DynMat->SetVectorParameterValue(FName("TextColor"), DamageColor);
+			DynMat->SetScalarParameterValue(FName("Opacity"), 1.0f);
+			NewText->SetMaterial(0, DynMat);
+		}
+	}
 
 	// Store in active list
 	FFloatingDamageNumber NewNumber;
@@ -144,6 +173,11 @@ void UDamageNumberComponent::ShowDeathMarker()
 			DeathTextComponent->SetAbsolute(true, true, true);
 			DeathTextComponent->SetText(FText::FromString(TEXT("X")));
 			DeathTextComponent->SetTextRenderColor(DeathColor.ToFColor(true));
+			// Apply custom font to death marker as well
+			if (DamageFont)
+			{
+				DeathTextComponent->SetFont(DamageFont);
+			}
 			DeathTextComponent->RegisterComponent();
 		}
 	}
