@@ -14,7 +14,9 @@
 #include "Camera/CameraShakeBase.h"
 #include "NiagaraFunctionLibrary.h"
 #include "NiagaraSystem.h"
+#include "NiagaraComponent.h"
 #include "Sound/SoundBase.h"
+#include "Components/AudioComponent.h"
 #include "Enemies/EnemyBase.h"
 
 UCombatComponent::UCombatComponent()
@@ -55,6 +57,9 @@ void UCombatComponent::LightAttack()
 	// Cannot attack while blocking
 	if (bIsHoldingBlock) return;
 
+	// Cannot attack during combo recovery
+	if (bComboExhausted) return;
+
 	// If already attacking, buffer the input
 	if (bIsAttacking)
 	{
@@ -73,6 +78,9 @@ void UCombatComponent::StartHeavyAttack()
 	// Cannot attack while blocking
 	if (bIsHoldingBlock) return;
 
+	// Cannot attack during combo recovery
+	if (bComboExhausted) return;
+
 	// If already attacking, buffer the input
 	if (bIsAttacking)
 	{
@@ -84,6 +92,30 @@ void UCombatComponent::StartHeavyAttack()
 	// Start charging
 	bIsChargingAttack = true;
 	CurrentChargeTime = 0.0f;
+
+	// Play charge start SFX
+	if (ChargeStartSound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(GetWorld(), ChargeStartSound, OwnerCharacter->GetActorLocation());
+	}
+
+	// Start charge hold loop SFX
+	if (ChargeHoldLoopSound && OwnerCharacter)
+	{
+		ChargeLoopAudioComponent = UGameplayStatics::SpawnSoundAttached(
+			ChargeHoldLoopSound, OwnerCharacter->GetRootComponent(),
+			NAME_None, FVector::ZeroVector, EAttachLocation::KeepRelativeOffset, false, 1.0f, 1.0f, 0.0f);
+	}
+
+	// Spawn charge VFX on weapon
+	if (ChargeVFX && OwnerCharacter && OwnerCharacter->EquippedWeapon)
+	{
+		ChargeVFXComponent = UNiagaraFunctionLibrary::SpawnSystemAttached(
+			ChargeVFX,
+			OwnerCharacter->EquippedWeapon->GetRootComponent(),
+			NAME_None, FVector::ZeroVector, FRotator::ZeroRotator,
+			EAttachLocation::KeepRelativeOffset, false);
+	}
 }
 
 void UCombatComponent::ReleaseHeavyAttack()
@@ -91,6 +123,9 @@ void UCombatComponent::ReleaseHeavyAttack()
 	if (!OwnerCharacter || !bIsChargingAttack) return;
 
 	bIsChargingAttack = false;
+
+	// Stop charge SFX/VFX
+	StopChargeFeedback();
 
 	// Determine attack type based on charge time
 	EAttackType AttackType = (CurrentChargeTime >= ChargeTimeForMaxDamage) ? EAttackType::Charged : EAttackType::Heavy;
@@ -159,6 +194,9 @@ void UCombatComponent::ExecuteAttack(EAttackType AttackType)
 
 	// Enable hit detection
 	EnableHitDetection();
+
+	// Play attack SFX and VFX
+	PlayAttackFeedback(AttackType);
 
 	// Broadcast event
 	OnAttackPerformed.Broadcast(AttackType);
@@ -273,11 +311,13 @@ void UCombatComponent::IncrementCombo()
 {
 	CurrentComboCount++;
 	
-	// Reset combo if max reached
+	// Combo exhausted - player must wait before attacking again
 	if (CurrentComboCount >= MaxLightCombo)
 	{
-		// Delay reset to allow for combo finisher
-		GetWorld()->GetTimerManager().SetTimer(ComboResetTimer, this, &UCombatComponent::ResetCombo, ComboResetTime, false);
+		bComboExhausted = true;
+		GetWorld()->GetTimerManager().SetTimer(ComboRecoveryTimer, this, &UCombatComponent::EndComboRecovery, ComboRecoveryCooldown, false);
+		// Also reset the combo count after recovery
+		GetWorld()->GetTimerManager().SetTimer(ComboResetTimer, this, &UCombatComponent::ResetCombo, ComboRecoveryCooldown + 0.1f, false);
 	}
 	else
 	{
@@ -786,3 +826,81 @@ void UCombatComponent::PlayParryFeedback(bool bPerfectParry)
 	}
 }
 
+// ========== ATTACK SFX/VFX ==========
+
+void UCombatComponent::PlayAttackFeedback(EAttackType AttackType)
+{
+	if (!OwnerCharacter) return;
+
+	FVector WeaponLocation = OwnerCharacter->GetActorLocation() + OwnerCharacter->GetActorForwardVector() * 80.0f;
+	if (OwnerCharacter->EquippedWeapon)
+	{
+		WeaponLocation = OwnerCharacter->EquippedWeapon->GetActorLocation();
+	}
+
+	switch (AttackType)
+	{
+	case EAttackType::Light:
+		if (LightAttackSwingSound)
+		{
+			UGameplayStatics::PlaySoundAtLocation(GetWorld(), LightAttackSwingSound, WeaponLocation);
+		}
+		if (LightAttackSwingVFX)
+		{
+			UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), LightAttackSwingVFX, WeaponLocation,
+				OwnerCharacter->GetActorRotation(), FVector(1.0f), true, true);
+		}
+		break;
+
+	case EAttackType::Heavy:
+		if (HeavyAttackSwingSound)
+		{
+			UGameplayStatics::PlaySoundAtLocation(GetWorld(), HeavyAttackSwingSound, WeaponLocation);
+		}
+		if (HeavyAttackSwingVFX)
+		{
+			UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), HeavyAttackSwingVFX, WeaponLocation,
+				OwnerCharacter->GetActorRotation(), FVector(1.0f), true, true);
+		}
+		break;
+
+	case EAttackType::Charged:
+		if (ChargedAttackReleaseSound)
+		{
+			UGameplayStatics::PlaySoundAtLocation(GetWorld(), ChargedAttackReleaseSound, WeaponLocation);
+		}
+		if (ChargedReleaseVFX)
+		{
+			UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), ChargedReleaseVFX, WeaponLocation,
+				OwnerCharacter->GetActorRotation(), FVector(1.0f), true, true);
+		}
+		break;
+
+	default:
+		break;
+	}
+}
+
+void UCombatComponent::StopChargeFeedback()
+{
+	// Stop charge hold loop audio
+	if (ChargeLoopAudioComponent)
+	{
+		ChargeLoopAudioComponent->Stop();
+		ChargeLoopAudioComponent = nullptr;
+	}
+
+	// Destroy charge VFX
+	if (ChargeVFXComponent)
+	{
+		ChargeVFXComponent->Deactivate();
+		ChargeVFXComponent->DestroyComponent();
+		ChargeVFXComponent = nullptr;
+	}
+}
+
+void UCombatComponent::EndComboRecovery()
+{
+	bComboExhausted = false;
+	UE_LOG(LogTemp, Log, TEXT("Combo recovery finished - player can attack again"));
+}

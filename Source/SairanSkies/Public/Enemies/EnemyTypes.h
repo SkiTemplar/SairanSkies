@@ -318,6 +318,10 @@ struct FEnemyVFXConfig
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
 	UNiagaraSystem* HitEffect = nullptr;
 
+	/** Blood splatter VFX spawned from enemy on hit (separate from HitEffect) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
+	UNiagaraSystem* BloodVFX = nullptr;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
 	UNiagaraSystem* DeathEffect = nullptr;
 };

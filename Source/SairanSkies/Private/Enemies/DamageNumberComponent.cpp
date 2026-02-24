@@ -3,6 +3,7 @@
 #include "Enemies/DamageNumberComponent.h"
 #include "Components/TextRenderComponent.h"
 #include "Engine/World.h"
+#include "Engine/Font.h"
 #include "Kismet/GameplayStatics.h"
 
 UDamageNumberComponent::UDamageNumberComponent()
@@ -96,6 +97,12 @@ void UDamageNumberComponent::SpawnDamageNumber(float DamageAmount, float HealthP
 	NewText->SetVerticalAlignment(EVRTA_TextCenter);
 	NewText->SetWorldSize(TextSize);
 	NewText->SetAbsolute(true, true, true); // World space, not relative
+
+	// Apply custom font if assigned
+	if (DamageFont)
+	{
+		NewText->SetFont(DamageFont);
+	}
 
 	// Set damage text
 	int32 DisplayDamage = FMath::RoundToInt(DamageAmount);

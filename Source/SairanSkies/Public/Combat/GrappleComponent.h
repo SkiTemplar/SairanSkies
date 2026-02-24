@@ -164,6 +164,24 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Grapple|Debug")
 	bool bShowDebug = false;
 
+	// ========== GRAPPLE SFX ==========
+
+	/** Sound played while aiming the grapple (ambient aim sound) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Grapple|SFX")
+	USoundBase* AimingSound;
+
+	/** Sound played during the pull (wind/cable retracting loop) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Grapple|SFX")
+	USoundBase* PullingSound;
+
+	/** Sound played when the grapple releases (whoosh/detach) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Grapple|SFX")
+	USoundBase* ReleaseSound;
+
+	/** Sound played when the grapple fires (launch/shoot cable) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Grapple|SFX")
+	USoundBase* FireSound;
+
 	// ========== VISUAL HOOK ==========
 	
 	/** Class of the grapple hook actor to spawn */
@@ -289,4 +307,10 @@ private:
 	// Crosshair smooth tracking state
 	FVector2D CurrentCrosshairPos = FVector2D::ZeroVector;
 	bool bCrosshairInitialized = false;
+
+	// Audio components for looping grapple sounds
+	UPROPERTY()
+	class UAudioComponent* AimingAudioComponent = nullptr;
+	UPROPERTY()
+	class UAudioComponent* PullingAudioComponent = nullptr;
 };

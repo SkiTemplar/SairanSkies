@@ -19,6 +19,8 @@ class UCheckpointComponent;
 class AWeaponBase;
 class USceneComponent;
 class UPlayerHUDWidget;
+class USoundBase;
+class UNiagaraSystem;
 
 UENUM(BlueprintType)
 enum class ECharacterState : uint8
@@ -195,6 +197,50 @@ public:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Camera")
 	float CameraZoomSpeed = 5.0f;
+
+	// ========== MOVEMENT SFX ==========
+
+	/** Sound played when dashing */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Movement|SFX")
+	USoundBase* DashSound;
+
+	/** Sound played on first jump */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Movement|SFX")
+	USoundBase* JumpSound;
+
+	/** Sound played on double jump */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Movement|SFX")
+	USoundBase* DoubleJumpSound;
+
+	/** Sound played when landing on ground */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Movement|SFX")
+	USoundBase* LandSound;
+
+	/** Sound played when switching weapon to hand */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Weapon|SFX")
+	USoundBase* DrawWeaponSound;
+
+	/** Sound played when sheathing weapon */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Weapon|SFX")
+	USoundBase* SheathWeaponSound;
+
+	// ========== MOVEMENT VFX ==========
+
+	/** VFX spawned at feet when dashing */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Movement|VFX")
+	class UNiagaraSystem* DashVFX;
+
+	/** VFX spawned at feet on jump */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Movement|VFX")
+	class UNiagaraSystem* JumpVFX;
+
+	/** VFX spawned at feet on double jump */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Movement|VFX")
+	class UNiagaraSystem* DoubleJumpVFX;
+
+	/** VFX spawned at feet when landing */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Movement|VFX")
+	class UNiagaraSystem* LandVFX;
 
 	// ========== WEAPON ==========
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Weapon")

@@ -155,6 +155,10 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|Combo")
 	float ComboResetTime = 1.5f;
 
+	/** Recovery time when combo is exhausted (all hits used). Player cannot attack during this time. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|Combo")
+	float ComboRecoveryCooldown = 0.75f;
+
 	// ========== ATTACK MONTAGES ==========
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|Animation")
 	TArray<UAnimMontage*> LightAttackMontages;
@@ -211,6 +215,46 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|HitFeedback")
 	USoundBase* HitSound;
 
+	// ========== ATTACK SFX ==========
+
+	/** Sound played when performing a light attack swing */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|SFX")
+	USoundBase* LightAttackSwingSound;
+
+	/** Sound played when performing a heavy attack swing */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|SFX")
+	USoundBase* HeavyAttackSwingSound;
+
+	/** Sound played when starting to charge an attack (loop this in editor) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|SFX")
+	USoundBase* ChargeStartSound;
+
+	/** Sound that loops while holding the charge (sustained tension sound) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|SFX")
+	USoundBase* ChargeHoldLoopSound;
+
+	/** Sound played when releasing a fully charged attack */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|SFX")
+	USoundBase* ChargedAttackReleaseSound;
+
+	// ========== ATTACK VFX ==========
+
+	/** VFX spawned at weapon position when light attack swings */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|VFX")
+	UNiagaraSystem* LightAttackSwingVFX;
+
+	/** VFX spawned at weapon position when heavy attack swings */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|VFX")
+	UNiagaraSystem* HeavyAttackSwingVFX;
+
+	/** VFX spawned while charging (aura around weapon) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|VFX")
+	UNiagaraSystem* ChargeVFX;
+
+	/** VFX spawned on charged attack release (big blast) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|VFX")
+	UNiagaraSystem* ChargedReleaseVFX;
+
 	/** Enable debug visualization for hit detection (should be false in final build) */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|Debug")
 	bool bShowHitDebug = false;
@@ -266,6 +310,10 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "Combat")
 	EAttackType BufferedAttackType = EAttackType::None;
 
+	/** True when the combo has been exhausted and the player must wait for recovery */
+	UPROPERTY(BlueprintReadOnly, Category = "Combat")
+	bool bComboExhausted = false;
+
 protected:
 	UPROPERTY()
 	ASairanCharacter* OwnerCharacter;
@@ -302,8 +350,24 @@ private:
 	FTimerHandle AttackEndTimer;
 	FTimerHandle HitstopTimer;
 	FTimerHandle PerfectParrySlowMoTimer;
+	FTimerHandle ComboRecoveryTimer;
 	/** Tracks whether the current hitstop is from a perfect parry (to chain into slow-mo) */
 	bool bIsPerfectParryHitstop = false;
+
+	/** Niagara component active during charge (destroyed on release) */
+	UPROPERTY()
+	class UNiagaraComponent* ChargeVFXComponent = nullptr;
+
+	/** Audio component playing the charge hold loop */
+	UPROPERTY()
+	class UAudioComponent* ChargeLoopAudioComponent = nullptr;
+
+	/** Play attack SFX and VFX based on attack type */
+	void PlayAttackFeedback(EAttackType AttackType);
+	/** Stop charge SFX and VFX */
+	void StopChargeFeedback();
+	/** Called when combo recovery finishes */
+	void EndComboRecovery();
 
 	TSet<AActor*> HitActorsThisAttack;
 	bool bHitLandedThisAttack = false;

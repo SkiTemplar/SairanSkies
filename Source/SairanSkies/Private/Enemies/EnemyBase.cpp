@@ -1089,7 +1089,21 @@ void AEnemyBase::TakeDamageAtLocation(float DamageAmount, AActor* DamageSource, 
 	
 	// Spawn hit effect attached to enemy at the hit location
 	SpawnHitEffect(HitWorldLocation);
-	
+
+	// Spawn blood VFX from enemy at hit location
+	if (VFXConfig.BloodVFX)
+	{
+		UNiagaraFunctionLibrary::SpawnSystemAttached(
+			VFXConfig.BloodVFX,
+			GetMesh(),
+			NAME_None,
+			GetMesh()->GetComponentTransform().InverseTransformPosition(HitWorldLocation),
+			FRotator::ZeroRotator,
+			EAttachLocation::KeepRelativeOffset,
+			true
+		);
+	}
+
 	// Start the hit flash (Blasphemous-style visual feedback)
 	StartHitFlash();
 

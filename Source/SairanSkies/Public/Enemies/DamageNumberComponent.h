@@ -7,6 +7,7 @@
 #include "DamageNumberComponent.generated.h"
 
 class UTextRenderComponent;
+class UFont;
 
 /**
  * Stores data for a single floating damage number instance
@@ -59,6 +60,10 @@ public:
 	void ResetCombo();
 
 	// ========== SETTINGS ==========
+
+	/** Font to use for damage numbers (leave null for default) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "DamageNumbers|Settings")
+	UFont* DamageFont = nullptr;
 
 	/** How long each damage number lives (seconds) */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "DamageNumbers|Settings")

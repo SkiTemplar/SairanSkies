@@ -14,6 +14,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
+#include "Components/AudioComponent.h"
 
 UGrappleComponent::UGrappleComponent()
 {
@@ -129,6 +130,14 @@ void UGrappleComponent::StartAiming()
 	// Show the crosshair
 	ShowCrosshair();
 
+	// Play aiming SFX
+	if (AimingSound && OwnerCharacter)
+	{
+		AimingAudioComponent = UGameplayStatics::SpawnSoundAttached(
+			AimingSound, OwnerCharacter->GetRootComponent(),
+			NAME_None, FVector::ZeroVector, EAttachLocation::KeepRelativeOffset, false, 1.0f, 1.0f, 0.0f);
+	}
+
 	OnGrappleAimStart.Broadcast();
 
 	if (bShowDebug)
@@ -171,6 +180,13 @@ void UGrappleComponent::StopAiming()
 	HideCrosshair();
 	bCrosshairInitialized = false;
 
+	// Stop aiming SFX
+	if (AimingAudioComponent)
+	{
+		AimingAudioComponent->Stop();
+		AimingAudioComponent = nullptr;
+	}
+
 	SetState(EGrappleState::Idle);
 	bHasValidTarget = false;
 	AimTargetLocation = FVector::ZeroVector;
@@ -205,6 +221,23 @@ void UGrappleComponent::FireGrapple()
 
 	// Hide crosshair when firing
 	HideCrosshair();
+
+	// Stop aiming SFX, play fire and pull SFX
+	if (AimingAudioComponent)
+	{
+		AimingAudioComponent->Stop();
+		AimingAudioComponent = nullptr;
+	}
+	if (FireSound && OwnerCharacter)
+	{
+		UGameplayStatics::PlaySoundAtLocation(GetWorld(), FireSound, OwnerCharacter->GetActorLocation());
+	}
+	if (PullingSound && OwnerCharacter)
+	{
+		PullingAudioComponent = UGameplayStatics::SpawnSoundAttached(
+			PullingSound, OwnerCharacter->GetRootComponent(),
+			NAME_None, FVector::ZeroVector, EAttachLocation::KeepRelativeOffset, false, 1.0f, 1.0f, 0.0f);
+	}
 
 	// Restore character rotation for the pull
 	if (OwnerCharacter->GetCharacterMovement())
@@ -358,7 +391,18 @@ void UGrappleComponent::UpdatePulling(float DeltaTime)
 		
 		// Stop particle trail
 		StopGrappleTrailParticles();
-		
+
+		// Stop pull SFX, play release SFX
+		if (PullingAudioComponent)
+		{
+			PullingAudioComponent->Stop();
+			PullingAudioComponent = nullptr;
+		}
+		if (ReleaseSound && OwnerCharacter)
+		{
+			UGameplayStatics::PlaySoundAtLocation(GetWorld(), ReleaseSound, OwnerCharacter->GetActorLocation());
+		}
+
 		// Return camera to normal
 		TargetCameraDistance = OwnerCharacter->DefaultCameraDistance;
 		TargetCameraOffset = OriginalCameraOffset;
@@ -636,6 +680,18 @@ void UGrappleComponent::ResetGrapple()
 
 	// Stop particles (in case they were active)
 	StopGrappleTrailParticles();
+
+	// Stop any lingering grapple audio
+	if (AimingAudioComponent)
+	{
+		AimingAudioComponent->Stop();
+		AimingAudioComponent = nullptr;
+	}
+	if (PullingAudioComponent)
+	{
+		PullingAudioComponent->Stop();
+		PullingAudioComponent = nullptr;
+	}
 
 	// Ensure camera returns to normal
 	if (OwnerCharacter && OwnerCharacter->CameraBoom)

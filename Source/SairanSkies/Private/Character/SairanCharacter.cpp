@@ -16,6 +16,10 @@
 #include "Character/CheckpointComponent.h"
 #include "Weapons/WeaponBase.h"
 #include "UI/PlayerHUDWidget.h"
+#include "Kismet/GameplayStatics.h"
+#include "NiagaraFunctionLibrary.h"
+#include "NiagaraSystem.h"
+#include "Sound/SoundBase.h"
 
 ASairanCharacter::ASairanCharacter()
 {
@@ -266,6 +270,20 @@ void ASairanCharacter::Landed(const FHitResult& Hit)
 {
 	Super::Landed(Hit);
 	CurrentJumpCount = 0;
+
+	FVector FeetLocation = GetActorLocation() - FVector(0.0f, 0.0f, GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
+
+	// Landing SFX
+	if (LandSound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(GetWorld(), LandSound, FeetLocation);
+	}
+	// Landing VFX
+	if (LandVFX)
+	{
+		UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), LandVFX, FeetLocation,
+			FRotator::ZeroRotator, FVector(1.0f), true, true);
+	}
 }
 
 // ========== INPUT HANDLERS ==========
@@ -318,14 +336,38 @@ void ASairanCharacter::JumpStart(const FInputActionValue& Value)
 {
 	if (CurrentJumpCount < MaxJumps && CanPerformAction())
 	{
+		FVector FeetLocation = GetActorLocation() - FVector(0.0f, 0.0f, GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
+
 		if (CurrentJumpCount > 0)
 		{
 			// Double jump - reset velocity for consistent jump height
 			LaunchCharacter(FVector(0, 0, GetCharacterMovement()->JumpZVelocity), false, true);
+			
+			// Double jump SFX/VFX
+			if (DoubleJumpSound)
+			{
+				UGameplayStatics::PlaySoundAtLocation(GetWorld(), DoubleJumpSound, GetActorLocation());
+			}
+			if (DoubleJumpVFX)
+			{
+				UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), DoubleJumpVFX, FeetLocation,
+					FRotator::ZeroRotator, FVector(1.0f), true, true);
+			}
 		}
 		else
 		{
 			Jump();
+			
+			// Jump SFX/VFX
+			if (JumpSound)
+			{
+				UGameplayStatics::PlaySoundAtLocation(GetWorld(), JumpSound, GetActorLocation());
+			}
+			if (JumpVFX)
+			{
+				UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), JumpVFX, FeetLocation,
+					FRotator::ZeroRotator, FVector(1.0f), true, true);
+			}
 		}
 		CurrentJumpCount++;
 	}
@@ -482,6 +524,19 @@ void ASairanCharacter::PerformDash()
 	// Launch character
 	LaunchCharacter(DashVelocity, true, true);
 
+	// Dash SFX
+	if (DashSound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(GetWorld(), DashSound, GetActorLocation());
+	}
+	// Dash VFX at feet
+	if (DashVFX)
+	{
+		FVector FeetLocation = GetActorLocation() - FVector(0.0f, 0.0f, GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
+		UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), DashVFX, FeetLocation,
+			DashDir.Rotation(), FVector(1.0f), true, true);
+	}
+
 	// End dash after duration
 	FTimerHandle DashEndTimer;
 	GetWorld()->GetTimerManager().SetTimer(DashEndTimer, [this]()
@@ -535,6 +590,11 @@ void ASairanCharacter::DrawWeapon()
 	{
 		bIsWeaponDrawn = true;
 		EquippedWeapon->AttachToHand();
+
+		if (DrawWeaponSound)
+		{
+			UGameplayStatics::PlaySoundAtLocation(GetWorld(), DrawWeaponSound, GetActorLocation());
+		}
 	}
 }
 
@@ -544,6 +604,11 @@ void ASairanCharacter::SheathWeapon()
 	{
 		bIsWeaponDrawn = false;
 		EquippedWeapon->AttachToBack();
+
+		if (SheathWeaponSound)
+		{
+			UGameplayStatics::PlaySoundAtLocation(GetWorld(), SheathWeaponSound, GetActorLocation());
+		}
 	}
 }
 
