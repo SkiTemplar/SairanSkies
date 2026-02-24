@@ -1,4 +1,8 @@
 // SairanSkies - BT Task: Circle Target (intelligent flanking with feints)
+//
+// ⚠️ DEPRECATED — Usa BTTask_OuterCircleBehavior en su lugar.
+// Este task pertenece al sistema antiguo de flanking slots.
+// Se mantiene solo por compatibilidad. NO usar en el BT nuevo.
 
 #pragma once
 
@@ -9,20 +13,11 @@
 class AEnemyBase;
 
 /**
- * Intelligent flanking behavior — Batman Arkham style.
+ * ⚠️ DEPRECATED — Usar BTTask_OuterCircleBehavior
  *
- * Enemies NEVER rush blindly through allies. When they enter combat
- * they go to the circle first. From there:
- *
- *  • Inner-ring enemies (max 3): actively circle the player, doing feints
- *    (small lunges forward and retreats) to create tension.
- *  • Outer-ring enemies (overflow): hold position further out, swaying
- *    and occasionally stepping in, always facing the player.
- *
- * All enemies face the player at all times (walking sideways/backwards).
- * The task checks every tick if an attack slot opened up and exits immediately.
+ * Old flanking behavior. Replaced by the Two-Circle system.
  */
-UCLASS()
+UCLASS(meta=(DeprecatedNode, DeprecationMessage="Use BTTask_OuterCircleBehavior instead"))
 class SAIRANSKIES_API UBTTask_CircleTarget : public UBTTaskNode
 {
 	GENERATED_BODY()

@@ -1,5 +1,6 @@
-// SairanSkies - Group Combat Manager
-// Manages which enemies can attack simultaneously (Batman Arkham style)
+// SairanSkies - Group Combat Manager (Two-Circle Model)
+// Outer circle: enemies wait, taunt, fake advances
+// Inner circle: only 1-2 enemies attack at a time
 
 #pragma once
 
@@ -10,16 +11,17 @@
 class AEnemyBase;
 
 /**
- * Manages enemy attack slots and proximity-based priority.
- * Batman Arkham-style: only MaxSimultaneousAttackers can attack at once.
- * When the player moves to a new group, those enemies get priority.
- * Enemies without a slot circle/flank instead of rushing in.
+ * Manages enemy combat positioning using two concentric circles.
  *
- * Flow for each enemy:
- *   1. Detect player → RegisterCombatEnemy
- *   2. Run to the CIRCLE first (never rush blindly into the player)
- *   3. From the circle, the manager assigns attack turns via RequestAttackSlot
- *   4. After attacking, enemy returns to the circle with a cooldown
+ * OUTER CIRCLE (~5m): Enemies wait here, doing taunts and feints.
+ * INNER CIRCLE (attack range): Only MaxInnerCircleEnemies can be here.
+ *
+ * Flow:
+ *   1. Enemy detects player → RegisterCombatEnemy → goes to outer circle
+ *   2. From outer circle, checks RequestInnerCircleEntry
+ *   3. If granted → enters inner circle, positions randomly, attacks
+ *   4. After attack → probability to stay or retreat to outer circle
+ *   5. If retreats → NotifyInnerCircleFreed → next outer enemy advances
  */
 UCLASS()
 class SAIRANSKIES_API UGroupCombatManager : public UWorldSubsystem
@@ -32,69 +34,13 @@ public:
 
 	// ========== CONFIGURATION ==========
 
-	/** Max enemies attacking the player at the same time */
-	int32 MaxSimultaneousAttackers = 3;
+	/** Max enemies allowed in the inner circle (attacking) at the same time */
+	int32 MaxInnerCircleEnemies = 2;
 
-	/** Radius to consider enemies in the "current group" near the player */
-	float GroupProximityRadius = 800.0f;
+	/** Cooldown before an enemy can re-enter the inner circle after retreating */
+	float InnerCircleCooldown = 2.0f;
 
-	/** How far flanking/circling enemies stay from the player */
-	float FlankingMinRadius = 350.0f;
-	float FlankingMaxRadius = 600.0f;
-
-	/** Cooldown before an ex-attacker can request a slot again */
-	float SlotCooldownTime = 1.5f;
-
-	/** Max enemies allowed in the inner flanking circle */
-	int32 MaxFlankingEnemies = 3;
-
-	/** Outer ring radius for enemies that don't have a flanking slot */
-	float OuterRingMinRadius = 600.0f;
-	float OuterRingMaxRadius = 850.0f;
-
-	// ========== SLOT MANAGEMENT ==========
-
-	UFUNCTION(BlueprintCallable, Category = "GroupCombat")
-	bool RequestAttackSlot(AEnemyBase* Enemy);
-
-	UFUNCTION(BlueprintCallable, Category = "GroupCombat")
-	void ReleaseAttackSlot(AEnemyBase* Enemy);
-
-	UFUNCTION(BlueprintPure, Category = "GroupCombat")
-	bool CanEnemyAttack(AEnemyBase* Enemy) const;
-
-	UFUNCTION(BlueprintPure, Category = "GroupCombat")
-	int32 GetActiveAttackerCount() const;
-
-	UFUNCTION(BlueprintPure, Category = "GroupCombat")
-	bool IsActiveAttacker(AEnemyBase* Enemy) const;
-
-	// ========== FLANKING ==========
-
-	/** Get a flanking position on the inner ring for this enemy */
-	UFUNCTION(BlueprintCallable, Category = "GroupCombat")
-	FVector GetFlankingPosition(AEnemyBase* Enemy, AActor* Target) const;
-
-	/** Get a position on the outer ring for overflow enemies */
-	UFUNCTION(BlueprintCallable, Category = "GroupCombat")
-	FVector GetOuterRingPosition(AEnemyBase* Enemy, AActor* Target) const;
-
-	UFUNCTION(BlueprintPure, Category = "GroupCombat")
-	bool CanEnemyFlank(AEnemyBase* Enemy) const;
-
-	UFUNCTION(BlueprintPure, Category = "GroupCombat")
-	int32 GetFlankingEnemyCount() const;
-
-	UFUNCTION(BlueprintCallable, Category = "GroupCombat")
-	bool RequestFlankingSlot(AEnemyBase* Enemy);
-
-	UFUNCTION(BlueprintCallable, Category = "GroupCombat")
-	void ReleaseFlankingSlot(AEnemyBase* Enemy);
-
-	// ========== PRIORITY ==========
-
-	UFUNCTION(BlueprintCallable, Category = "GroupCombat")
-	void UpdateProximityPriorities(const FVector& PlayerLocation);
+	// ========== REGISTRATION ==========
 
 	UFUNCTION(BlueprintCallable, Category = "GroupCombat")
 	void RegisterCombatEnemy(AEnemyBase* Enemy);
@@ -102,34 +48,92 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "GroupCombat")
 	void UnregisterCombatEnemy(AEnemyBase* Enemy);
 
-	/** How many enemies are currently in combat */
+	// ========== INNER CIRCLE ==========
+
+	/** Request to enter the inner circle. Returns true if there's space. */
+	UFUNCTION(BlueprintCallable, Category = "GroupCombat")
+	bool RequestInnerCircleEntry(AEnemyBase* Enemy);
+
+	/** Called when an enemy finishes attacking.
+	 *  bStayInner: if true, stays in inner; if false, retreats to outer.
+	 *  Returns the next enemy that should advance from outer circle (can be nullptr).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "GroupCombat")
+	AEnemyBase* OnAttackFinished(AEnemyBase* Enemy, bool bStayInner);
+
+	/** Force an enemy out of the inner circle */
+	UFUNCTION(BlueprintCallable, Category = "GroupCombat")
+	void ForceToOuterCircle(AEnemyBase* Enemy);
+
+	UFUNCTION(BlueprintPure, Category = "GroupCombat")
+	bool IsInInnerCircle(AEnemyBase* Enemy) const;
+
+	UFUNCTION(BlueprintPure, Category = "GroupCombat")
+	bool IsInOuterCircle(AEnemyBase* Enemy) const;
+
+	UFUNCTION(BlueprintPure, Category = "GroupCombat")
+	int32 GetInnerCircleCount() const { return InnerCircleEnemies.Num(); }
+
+	UFUNCTION(BlueprintPure, Category = "GroupCombat")
+	int32 GetOuterCircleCount() const { return OuterCircleEnemies.Num(); }
+
 	UFUNCTION(BlueprintPure, Category = "GroupCombat")
 	int32 GetTotalCombatEnemies() const { return CombatEnemies.Num(); }
 
-private:
-	UPROPERTY()
-	TArray<AEnemyBase*> ActiveAttackers;
+	UFUNCTION(BlueprintPure, Category = "GroupCombat")
+	bool HasInnerCircleSpace() const;
 
+	// ========== POSITIONING ==========
+
+	/** Get a position on the outer circle for this enemy */
+	UFUNCTION(BlueprintCallable, Category = "GroupCombat")
+	FVector GetOuterCirclePosition(AEnemyBase* Enemy, AActor* Target) const;
+
+	/** Pick a random attack position within the inner circle */
+	UFUNCTION(BlueprintCallable, Category = "GroupCombat")
+	FVector GetInnerCircleAttackPosition(AEnemyBase* Enemy, AActor* Target) const;
+
+	// ========== LEGACY COMPATIBILITY ==========
+
+	UFUNCTION(BlueprintCallable, Category = "GroupCombat")
+	bool RequestAttackSlot(AEnemyBase* Enemy) { return RequestInnerCircleEntry(Enemy); }
+
+	UFUNCTION(BlueprintCallable, Category = "GroupCombat")
+	void ReleaseAttackSlot(AEnemyBase* Enemy) { ForceToOuterCircle(Enemy); }
+
+	UFUNCTION(BlueprintPure, Category = "GroupCombat")
+	bool CanEnemyAttack(AEnemyBase* Enemy) const { return HasInnerCircleSpace() || IsInInnerCircle(Enemy); }
+
+	UFUNCTION(BlueprintPure, Category = "GroupCombat")
+	int32 GetActiveAttackerCount() const { return InnerCircleEnemies.Num(); }
+
+	UFUNCTION(BlueprintPure, Category = "GroupCombat")
+	bool IsActiveAttacker(AEnemyBase* Enemy) const { return IsInInnerCircle(Enemy); }
+
+	FVector GetFlankingPosition(AEnemyBase* Enemy, AActor* Target) const { return GetOuterCirclePosition(Enemy, Target); }
+	FVector GetOuterRingPosition(AEnemyBase* Enemy, AActor* Target) const { return GetOuterCirclePosition(Enemy, Target); }
+	bool CanEnemyFlank(AEnemyBase* Enemy) const { return true; }
+	int32 GetFlankingEnemyCount() const { return OuterCircleEnemies.Num(); }
+	bool RequestFlankingSlot(AEnemyBase* Enemy) { return true; }
+	void ReleaseFlankingSlot(AEnemyBase* Enemy) {}
+	void UpdateProximityPriorities(const FVector& PlayerLocation) {}
+
+private:
 	UPROPERTY()
 	TArray<AEnemyBase*> CombatEnemies;
 
 	UPROPERTY()
-	TArray<AEnemyBase*> FlankingEnemies;
+	TArray<AEnemyBase*> OuterCircleEnemies;
 
-	TMap<TWeakObjectPtr<AEnemyBase>, float> ProximityScores;
-	TMap<TWeakObjectPtr<AEnemyBase>, float> SlotCooldowns;
+	UPROPERTY()
+	TArray<AEnemyBase*> InnerCircleEnemies;
+
+	TMap<TWeakObjectPtr<AEnemyBase>, float> InnerCooldowns;
 
 	void PurgeInvalidEnemies();
-	AEnemyBase* FindLowestPriorityAttacker() const;
 
-	/**
-	 * Compute a ring position ensuring enemies are well-spread around the target.
-	 * @param EnemyIndex  Which "slot" on the ring this enemy occupies (0..N-1)
-	 * @param TotalOnRing How many enemies share this ring
-	 * @param MinR / MaxR Radius range
-	 * @param TargetLoc   Center of the ring
-	 * @param Seed        Per-enemy seed for slight randomness so they don't perfectly align
-	 */
+	AEnemyBase* PickNextFromOuterCircle(AActor* Target) const;
+
 	FVector ComputeRingPosition(int32 EnemyIndex, int32 TotalOnRing,
-		float MinR, float MaxR, const FVector& TargetLoc, int32 Seed) const;
+		float MinR, float MaxR, const FVector& Center, int32 Seed) const;
 };

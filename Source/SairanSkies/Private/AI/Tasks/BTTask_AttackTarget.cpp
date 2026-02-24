@@ -3,10 +3,12 @@
 #include "AI/Tasks/BTTask_AttackTarget.h"
 #include "Enemies/EnemyBase.h"
 #include "AI/EnemyAIController.h"
+#include "AI/GroupCombatManager.h"
 #include "BehaviorTree/BehaviorTreeComponent.h"
 #include "Navigation/PathFollowingComponent.h"
 #include "AIController.h"
 #include "Kismet/GameplayStatics.h"
+#include "GameFramework/CharacterMovementComponent.h"
 
 UBTTask_AttackTarget::UBTTask_AttackTarget()
 {
@@ -15,33 +17,88 @@ UBTTask_AttackTarget::UBTTask_AttackTarget()
 	bCreateNodeInstance = true;
 }
 
-// ---------------------------------------------------------------------------
+// ═══════════════════════════════════════════════════════════════════════════
+// COMBO SELECTION — Probabilistic algorithm based on distance
+// 
+// Given N combos (montages) and normalized distance T (0=close, 1=far):
+//   Combo[0] has highest weight when CLOSE
+//   Combo[N-1] has highest weight when FAR
+//
+// Weight formula: W(i) = max(0.1, 1.0 - abs(idealT - T))
+//   where idealT(i) = i / (N-1) for N>1
+// ═══════════════════════════════════════════════════════════════════════════
+
 void UBTTask_AttackTarget::PickComboByDistance(AEnemyBase* Enemy)
 {
 	int32 NumMontages = Enemy->AnimationConfig.AttackMontages.Num();
-	if (NumMontages <= 1)
+	if (NumMontages <= 0)
 	{
-		TotalHits = FMath::Max(1, NumMontages);
-		if (NumMontages == 0) TotalHits = 1; // sin montajes → 1 golpe debug
+		// No montages — 1 debug hit
+		TotalHits = 1;
+		ChosenComboIndex = 0;
+		return;
+	}
+	if (NumMontages == 1)
+	{
+		TotalHits = 1;
+		ChosenComboIndex = 0;
 		return;
 	}
 
+	// Normalized distance: 0 = at MinAttackPositionDist, 1 = at MaxAttackPositionDist
 	float Dist = Enemy->GetDistanceToTarget();
-	float Min = Enemy->CombatConfig.MinAttackDistance;
-	float Max = Enemy->CombatConfig.MaxAttackDistance;
+	float MinD = Enemy->CombatConfig.MinAttackPositionDist;
+	float MaxD = Enemy->CombatConfig.MaxAttackPositionDist;
+	float T = FMath::Clamp((Dist - MinD) / FMath::Max(MaxD - MinD, 1.0f), 0.0f, 1.0f);
 
-	float T = FMath::Clamp((Dist - Min) / FMath::Max(Max - Min, 1.0f), 0.0f, 1.0f);
+	// Calculate weights for each combo
+	TArray<float> Weights;
+	Weights.SetNum(NumMontages);
+	float TotalWeight = 0.0f;
+
+	for (int32 i = 0; i < NumMontages; i++)
+	{
+		// idealT for combo i: spreads evenly from 0 (close) to 1 (far)
+		float IdealT = (NumMontages > 1) ? (float)i / (float)(NumMontages - 1) : 0.5f;
+
+		// Weight = closeness to ideal position, with a floor so no combo is impossible
+		float W = FMath::Max(0.1f, 1.0f - FMath::Abs(IdealT - T));
+
+		// Boost weight slightly for closer combos (more aggressive feel)
+		W *= (1.0f + (1.0f - IdealT) * 0.3f);
+
+		Weights[i] = W;
+		TotalWeight += W;
+	}
+
+	// Weighted random selection
+	float Roll = FMath::FRandRange(0.0f, TotalWeight);
+	float Accum = 0.0f;
+	ChosenComboIndex = 0;
+	for (int32 i = 0; i < NumMontages; i++)
+	{
+		Accum += Weights[i];
+		if (Roll <= Accum)
+		{
+			ChosenComboIndex = i;
+			break;
+		}
+	}
+
+	// Close combos (low index) tend to be multi-hit; far combos single hit
+	// The number of hits is: more hits for closer combos
 	float CloseWeight = 1.0f - T;
+	int32 MaxHits = FMath::Max(1, NumMontages);
+	float MeanHits = FMath::Lerp(1.0f, (float)MaxHits, CloseWeight);
+	TotalHits = FMath::Clamp(FMath::RoundToInt32(MeanHits + FMath::RandRange(-0.5f, 0.5f)), 1, MaxHits);
 
-	float MeanHits = FMath::Lerp(1.0f, (float)NumMontages, CloseWeight);
-	int32 Hits = FMath::RoundToInt32(MeanHits + FMath::RandRange(-0.5f, 0.5f));
-	TotalHits = FMath::Clamp(Hits, 1, NumMontages);
-
-	UE_LOG(LogTemp, Log, TEXT("Attack: %s combo=%d (dist=%.0f, closeness=%.0f%%, montajes=%d)"),
-		*Enemy->GetName(), TotalHits, Dist, CloseWeight * 100.0f, NumMontages);
+	UE_LOG(LogTemp, Log, TEXT("Attack: %s combo[%d] (%d hits) | dist=%.0f T=%.2f weights=[%s]"),
+		*Enemy->GetName(), ChosenComboIndex, TotalHits, Dist, T,
+		*FString::JoinBy(Weights, TEXT(","), [](float W) { return FString::Printf(TEXT("%.2f"), W); }));
 }
 
-// ---------------------------------------------------------------------------
+// ═══════════════════════════════════════════════════════════════════════════
+
 void UBTTask_AttackTarget::ApplyDamage(AEnemyBase* Enemy, AActor* Target)
 {
 	if (!Enemy || !Target) return;
@@ -55,7 +112,6 @@ void UBTTask_AttackTarget::ApplyDamage(AEnemyBase* Enemy, AActor* Target)
 	UGameplayStatics::ApplyDamage(Target, Dmg, Enemy->GetController(), Enemy, UDamageType::StaticClass());
 }
 
-// ---------------------------------------------------------------------------
 void UBTTask_AttackTarget::ApplyDebugRotation(AEnemyBase* Enemy, bool bRestore)
 {
 	if (bRestore)
@@ -70,17 +126,44 @@ void UBTTask_AttackTarget::ApplyDebugRotation(AEnemyBase* Enemy, bool bRestore)
 	Enemy->SetActorRotation(OriginalRotation + Offset);
 }
 
-// ---------------------------------------------------------------------------
-void UBTTask_AttackTarget::Cleanup(AEnemyBase* Enemy)
+void UBTTask_AttackTarget::Cleanup(UBehaviorTreeComponent& OwnerComp, AEnemyBase* Enemy)
 {
-	if (Enemy)
+	if (!Enemy) return;
+
+	ApplyDebugRotation(Enemy, true);
+
+	// Restore orient to movement
+	if (auto* CMC = Enemy->GetCharacterMovement())
+		CMC->bOrientRotationToMovement = true;
+
+	// Decide: stay in inner circle or retreat to outer
+	auto* Mgr = GetWorld()->GetSubsystem<UGroupCombatManager>();
+	if (Mgr)
 	{
-		ApplyDebugRotation(Enemy, true);
-		Enemy->UnregisterAsAttacker();
+		bool bStay = FMath::FRand() < Enemy->CombatConfig.ChanceToStayInnerAfterAttack;
+		AEnemyBase* NextAttacker = Mgr->OnAttackFinished(Enemy, bStay);
+
+		if (bStay)
+		{
+			UE_LOG(LogTemp, Log, TEXT("Attack: %s se queda en inner circle"), *Enemy->GetName());
+			Enemy->SetEnemyState(EEnemyState::InnerCircle);
+		}
+		else
+		{
+			UE_LOG(LogTemp, Log, TEXT("Attack: %s vuelve al outer circle"), *Enemy->GetName());
+			Enemy->SetEnemyState(EEnemyState::OuterCircle);
+		}
+	}
+	else
+	{
+		Enemy->SetEnemyState(EEnemyState::Chasing);
 	}
 }
 
-// ---------------------------------------------------------------------------
+// ═══════════════════════════════════════════════════════════════════════════
+// EXECUTE — entry point (enemy already in inner circle)
+// ═══════════════════════════════════════════════════════════════════════════
+
 EBTNodeResult::Type UBTTask_AttackTarget::ExecuteTask(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory)
 {
 	AEnemyAIController* AIC = Cast<AEnemyAIController>(OwnerComp.GetAIOwner());
@@ -92,42 +175,66 @@ EBTNodeResult::Type UBTTask_AttackTarget::ExecuteTask(UBehaviorTreeComponent& Ow
 	AActor* Target = Enemy->GetCurrentTarget();
 	if (!Target) return EBTNodeResult::Failed;
 
+	// Reset state
 	CurrentHit = 0;
 	TotalHits = 1;
-	ChosenAttackDist = FMath::Max(Enemy->CombatConfig.MaxAttackDistance - 100.0f, 10.0f);
+	ChosenComboIndex = 0;
+	PhaseTimer = 0.0f;
 
-	// If cooldown active → wait internally
-	if (!Enemy->CanAttack())
-	{
-		Phase = EAttackPhase::WaitCooldown;
-		PhaseTimer = 0.0f;
-		AIC->StopMovement();
-		return EBTNodeResult::InProgress;
-	}
+	// Disable auto-orient — we control rotation manually
+	if (auto* CMC = Enemy->GetCharacterMovement())
+		CMC->bOrientRotationToMovement = false;
 
-	// The enemy should already be near the player (from the flanking circle).
-	// We just close the last gap from circle → melee range.
-	float Dist = Enemy->GetDistanceToTarget();
-	if (Dist <= Enemy->CombatConfig.MaxAttackDistance)
+	Enemy->SetEnemyState(EEnemyState::Attacking);
+
+	// Pick a random attack position within the attack range
+	auto* Mgr = GetWorld()->GetSubsystem<UGroupCombatManager>();
+	if (Mgr)
 	{
-		// Already in range — skip approach, go straight to WaitTurn
-		Phase = EAttackPhase::WaitTurn;
-		PhaseTimer = 0.0f;
-		AIC->StopMovement();
+		AttackPosition = Mgr->GetInnerCircleAttackPosition(Enemy, Target);
 	}
 	else
 	{
-		// Close the gap (short distance, from ring to melee)
+		// Fallback: position in front of target
+		FVector Dir = (Enemy->GetActorLocation() - Target->GetActorLocation()).GetSafeNormal2D();
+		float Dist = FMath::RandRange(Enemy->CombatConfig.MinAttackPositionDist, Enemy->CombatConfig.MaxAttackPositionDist);
+		AttackPosition = Target->GetActorLocation() + Dir * Dist;
+	}
+
+	// Check if already in attack range
+	float DistToTarget = Enemy->GetDistanceToTarget();
+	if (DistToTarget <= Enemy->CombatConfig.MaxAttackPositionDist + 30.0f)
+	{
+		// Already in range — skip approach, start attacking
+		Enemy->Attack(); // Start cooldown
+		PickComboByDistance(Enemy);
+
+		Phase = EAttackPhase::WindUp;
+		PhaseTimer = 0.0f;
+		AIC->StopMovement();
+
+		UE_LOG(LogTemp, Warning, TEXT("=== ATTACK START: %s → %s | combo[%d] %d hits | dist=%.0f ==="),
+			*Enemy->GetName(), *Target->GetName(), ChosenComboIndex, TotalHits, DistToTarget);
+	}
+	else
+	{
+		// Need to close the gap from outer circle → attack range
 		Phase = EAttackPhase::Approach;
 		PhaseTimer = 0.0f;
-		Enemy->SetChaseSpeed();
-		AIC->MoveToActor(Target, ChosenAttackDist);
+		Enemy->SetMovementSpeed(0.5f); // Moderate approach speed
+		AIC->MoveToActor(Target, Enemy->CombatConfig.MinAttackPositionDist);
+
+		UE_LOG(LogTemp, Log, TEXT("Attack: %s acercándose a posición de ataque (dist=%.0f)"),
+			*Enemy->GetName(), DistToTarget);
 	}
 
 	return EBTNodeResult::InProgress;
 }
 
-// ---------------------------------------------------------------------------
+// ═══════════════════════════════════════════════════════════════════════════
+// TICK
+// ═══════════════════════════════════════════════════════════════════════════
+
 void UBTTask_AttackTarget::TickTask(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory, float DeltaSeconds)
 {
 	AEnemyAIController* AIC = Cast<AEnemyAIController>(OwnerComp.GetAIOwner());
@@ -139,7 +246,7 @@ void UBTTask_AttackTarget::TickTask(UBehaviorTreeComponent& OwnerComp, uint8* No
 	AActor* Target = Enemy->GetCurrentTarget();
 	if (!Target)
 	{
-		Cleanup(Enemy);
+		Cleanup(OwnerComp, Enemy);
 		FinishLatentTask(OwnerComp, EBTNodeResult::Failed);
 		return;
 	}
@@ -154,101 +261,51 @@ void UBTTask_AttackTarget::TickTask(UBehaviorTreeComponent& OwnerComp, uint8* No
 		Look.Pitch = 0.0f; Look.Roll = 0.0f;
 		FRotator Cur = Enemy->GetActorRotation();
 		Cur.Pitch = 0.0f; Cur.Roll = 0.0f;
-		Enemy->SetActorRotation(FMath::RInterpTo(Cur, Look, DeltaSeconds, 6.0f));
+		Enemy->SetActorRotation(FMath::RInterpTo(Cur, Look, DeltaSeconds, 8.0f));
 	}
 
 	switch (Phase)
 	{
 	// ═══════════════════════════════════════════════════════════════════
-	// WAIT COOLDOWN — espera quieto mirando al jugador hasta que pueda atacar
-	// ═══════════════════════════════════════════════════════════════════
-	case EAttackPhase::WaitCooldown:
-	{
-		if (Enemy->CanAttack())
-		{
-			Phase = EAttackPhase::Approach;
-			PhaseTimer = 0.0f;
-			Enemy->SetChaseSpeed();
-			AIC->MoveToActor(Target, ChosenAttackDist);
-			UE_LOG(LogTemp, Log, TEXT("Attack: %s — cooldown listo, APPROACH"), *Enemy->GetName());
-			break;
-		}
-
-		// Si el jugador se acerca/aleja, seguir mirándole pero no moverse
-		// Timeout largo — el cooldown normalmente es 1.5-2s
-		if (PhaseTimer >= 10.0f)
-		{
-			UE_LOG(LogTemp, Warning, TEXT("Attack: %s — timeout cooldown"), *Enemy->GetName());
-			FinishLatentTask(OwnerComp, EBTNodeResult::Failed);
-		}
-		break;
-	}
-
-	// ═══════════════════════════════════════════════════════════════════
-	// APPROACH — close the last gap from circle → melee range
+	// APPROACH — close the gap from outer circle to attack range
 	// ═══════════════════════════════════════════════════════════════════
 	case EAttackPhase::Approach:
 	{
 		float Dist = Enemy->GetDistanceToTarget();
 
-		if (Dist <= Enemy->CombatConfig.MaxAttackDistance)
+		if (Dist <= Enemy->CombatConfig.MaxAttackPositionDist + 30.0f)
 		{
 			AIC->StopMovement();
-			Phase = EAttackPhase::WaitTurn;
-			PhaseTimer = 0.0f;
-			break;
-		}
-
-		EPathFollowingStatus::Type Status = AIC->GetMoveStatus();
-		if (Status == EPathFollowingStatus::Idle || Status == EPathFollowingStatus::Waiting)
-		{
-			AIC->MoveToActor(Target, ChosenAttackDist);
-		}
-
-		// Short timeout — the enemy was already in the circle nearby.
-		// If we can't close the gap in 4s, something's blocking us → go back to circle.
-		if (PhaseTimer >= 4.0f)
-		{
-			UE_LOG(LogTemp, Log, TEXT("Attack: %s — approach timeout, returning to circle"), *Enemy->GetName());
-			FinishLatentTask(OwnerComp, EBTNodeResult::Failed);
-		}
-		break;
-	}
-
-	// ═══════════════════════════════════════════════════════════════════
-	// WAIT TURN — try to get an attack slot; if blocked, return to circle FAST
-	// ═══════════════════════════════════════════════════════════════════
-	case EAttackPhase::WaitTurn:
-	{
-		if (Enemy->CanJoinAttack() && Enemy->CanAttackNow())
-		{
-			Enemy->RegisterAsAttacker();
-			Enemy->Attack();
-			Enemy->SetEnemyState(EEnemyState::Attacking);
-			AIC->StopMovement();
-
+			Enemy->Attack(); // Start cooldown
 			PickComboByDistance(Enemy);
 
 			Phase = EAttackPhase::WindUp;
 			PhaseTimer = 0.0f;
 
-			UE_LOG(LogTemp, Warning, TEXT("=== ATTACK START: %s → %s | %d hits | dist=%.0f ==="),
-				*Enemy->GetName(), *Target->GetName(), TotalHits, Enemy->GetDistanceToTarget());
+			UE_LOG(LogTemp, Warning, TEXT("=== ATTACK START: %s → %s | combo[%d] %d hits | dist=%.0f ==="),
+				*Enemy->GetName(), *Target->GetName(), ChosenComboIndex, TotalHits, Dist);
 			break;
 		}
 
-		// Don't stall here — if we can't attack within 1.5s, go back to
-		// the circle so we don't block other enemies or stand around like idiots.
-		if (PhaseTimer >= 1.5f)
+		// Re-request movement if stuck
+		EPathFollowingStatus::Type Status = AIC->GetMoveStatus();
+		if (Status == EPathFollowingStatus::Idle || Status == EPathFollowingStatus::Waiting)
 		{
-			UE_LOG(LogTemp, Log, TEXT("Attack: %s — no slot, returning to circle"), *Enemy->GetName());
+			AIC->MoveToActor(Target, Enemy->CombatConfig.MinAttackPositionDist);
+		}
+
+		// Timeout
+		if (PhaseTimer >= MaxApproachTime)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("Attack: %s approach timeout (dist=%.0f)"), *Enemy->GetName(), Dist);
+			Cleanup(OwnerComp, Enemy);
 			FinishLatentTask(OwnerComp, EBTNodeResult::Failed);
 		}
 		break;
 	}
 
 	// ═══════════════════════════════════════════════════════════════════
-	// WINDUP — anticipación, guardar posición para lunge
+	// WINDUP — anticipación, guardar posición
 	// ═══════════════════════════════════════════════════════════════════
 	case EAttackPhase::WindUp:
 	{
@@ -258,33 +315,31 @@ void UBTTask_AttackTarget::TickTask(UBehaviorTreeComponent& OwnerComp, uint8* No
 			Phase = EAttackPhase::Strike;
 			CurrentHit++;
 
-			// Guardar posición antes del lunge
 			StrikeStartLocation = Enemy->GetActorLocation();
 
-			// Debug rotación
+			// Debug rotation
 			ApplyDebugRotation(Enemy, false);
 
-			// Debug lunge: mover hacia el target
+			// Debug lunge towards target
 			if (DebugLungeDistance > 0.0f)
 			{
-				FVector ToTarget = (Target->GetActorLocation() - Enemy->GetActorLocation()).GetSafeNormal();
-				ToTarget.Z = 0.0f;
+				FVector ToTarget = (Target->GetActorLocation() - Enemy->GetActorLocation()).GetSafeNormal2D();
 				Enemy->SetActorLocation(StrikeStartLocation + ToTarget * DebugLungeDistance);
 			}
 
-			// Daño
+			// Apply damage
 			ApplyDamage(Enemy, Target);
 
-			// Montaje si existe
-			int32 Idx = (CurrentHit - 1) % FMath::Max(1, Enemy->AnimationConfig.AttackMontages.Num());
-			if (Enemy->AnimationConfig.AttackMontages.IsValidIndex(Idx))
+			// Play montage if available
+			int32 MontageIdx = (ChosenComboIndex + CurrentHit - 1) % FMath::Max(1, Enemy->AnimationConfig.AttackMontages.Num());
+			if (Enemy->AnimationConfig.AttackMontages.IsValidIndex(MontageIdx))
 			{
-				UAnimMontage* M = Enemy->AnimationConfig.AttackMontages[Idx];
+				UAnimMontage* M = Enemy->AnimationConfig.AttackMontages[MontageIdx];
 				if (M) Enemy->PlayAnimMontage(M);
 			}
 
-			UE_LOG(LogTemp, Log, TEXT("Attack: %s GOLPE %d/%d (rot %s%.0f°, lunge %.0f)"),
-				*Enemy->GetName(), CurrentHit, TotalHits,
+			UE_LOG(LogTemp, Log, TEXT("Attack: %s GOLPE %d/%d (combo[%d] rot %s%.0f° lunge %.0f)"),
+				*Enemy->GetName(), CurrentHit, TotalHits, ChosenComboIndex,
 				(CurrentHit % 2 == 0) ? TEXT("+") : TEXT("-"),
 				DebugRotationDegrees, DebugLungeDistance);
 		}
@@ -292,11 +347,11 @@ void UBTTask_AttackTarget::TickTask(UBehaviorTreeComponent& OwnerComp, uint8* No
 	}
 
 	// ═══════════════════════════════════════════════════════════════════
-	// STRIKE — golpe activo, volver a posición original gradualmente
+	// STRIKE — golpe activo, volver gradualmente a posición original
 	// ═══════════════════════════════════════════════════════════════════
 	case EAttackPhase::Strike:
 	{
-		// Interpolar de vuelta a posición original durante el Strike
+		// Interpolate back to original position during strike
 		if (DebugLungeDistance > 0.0f)
 		{
 			float Alpha = FMath::Clamp(PhaseTimer / StrikeDuration, 0.0f, 1.0f);
@@ -310,7 +365,7 @@ void UBTTask_AttackTarget::TickTask(UBehaviorTreeComponent& OwnerComp, uint8* No
 			PhaseTimer = 0.0f;
 			Phase = EAttackPhase::Recovery;
 
-			// Restaurar posición y rotación
+			// Restore position and rotation
 			Enemy->SetActorLocation(StrikeStartLocation);
 			ApplyDebugRotation(Enemy, true);
 		}
@@ -331,7 +386,7 @@ void UBTTask_AttackTarget::TickTask(UBehaviorTreeComponent& OwnerComp, uint8* No
 	}
 
 	// ═══════════════════════════════════════════════════════════════════
-	// COMBOGAP
+	// COMBOGAP — pausa entre golpes
 	// ═══════════════════════════════════════════════════════════════════
 	case EAttackPhase::ComboGap:
 	{
@@ -344,26 +399,27 @@ void UBTTask_AttackTarget::TickTask(UBehaviorTreeComponent& OwnerComp, uint8* No
 	}
 
 	// ═══════════════════════════════════════════════════════════════════
-	// FINISHED
+	// FINISHED — combo completo
 	// ═══════════════════════════════════════════════════════════════════
 	case EAttackPhase::Finished:
 	{
-		Cleanup(Enemy);
-		Enemy->SetEnemyState(EEnemyState::Chasing);
+		UE_LOG(LogTemp, Warning, TEXT("=== ATTACK END: %s — %d golpes (combo[%d]) ==="),
+			*Enemy->GetName(), CurrentHit, ChosenComboIndex);
 
-		UE_LOG(LogTemp, Warning, TEXT("=== ATTACK END: %s — %d golpes ==="), *Enemy->GetName(), CurrentHit);
+		Cleanup(OwnerComp, Enemy);
 		FinishLatentTask(OwnerComp, EBTNodeResult::Succeeded);
 		break;
 	}
 
 	default:
-		Cleanup(Enemy);
+		Cleanup(OwnerComp, Enemy);
 		FinishLatentTask(OwnerComp, EBTNodeResult::Failed);
 		break;
 	}
 }
 
-// ---------------------------------------------------------------------------
+// ═══════════════════════════════════════════════════════════════════════════
+
 FString UBTTask_AttackTarget::GetStaticDescription() const
 {
 	return FString::Printf(TEXT("Attack (combo by distance, dmg ±%.0f%%, rot ±%.0f°, lunge %.0f)"),

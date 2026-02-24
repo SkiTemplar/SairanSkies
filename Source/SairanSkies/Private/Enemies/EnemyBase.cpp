@@ -49,7 +49,7 @@ AEnemyBase::AEnemyBase()
 	bCanAttack = true;
 	TimeSinceLastSawTarget = 0.0f;
 	AttackCooldownTimer = 0.0f;
-	BaseMaxWalkSpeed = 350.0f;
+	BaseMaxWalkSpeed = 200.0f;
 
 	// Damage numbers component
 	DamageNumberComponent = CreateDefaultSubobject<UDamageNumberComponent>(TEXT("DamageNumberComponent"));
@@ -236,6 +236,14 @@ void AEnemyBase::SetEnemyState(EEnemyState NewState)
 		SetPatrolSpeedWithVariation();
 		break;
 	case EEnemyState::Chasing:
+		SetChaseSpeed();
+		break;
+	case EEnemyState::OuterCircle:
+		SetOuterCircleSpeed();
+		break;
+	case EEnemyState::InnerCircle:
+		SetChaseSpeed();
+		break;
 	case EEnemyState::Attacking:
 		SetChaseSpeed();
 		break;
@@ -251,9 +259,11 @@ void AEnemyBase::SetEnemyState(EEnemyState NewState)
 	}
 
 	// Cleanup when leaving combat states
-	if (OldState == EEnemyState::Attacking || OldState == EEnemyState::Chasing)
+	if (OldState == EEnemyState::Attacking || OldState == EEnemyState::Chasing ||
+		OldState == EEnemyState::InnerCircle || OldState == EEnemyState::OuterCircle)
 	{
-		if (NewState != EEnemyState::Attacking && NewState != EEnemyState::Chasing)
+		if (NewState != EEnemyState::Attacking && NewState != EEnemyState::Chasing &&
+			NewState != EEnemyState::InnerCircle && NewState != EEnemyState::OuterCircle)
 		{
 			UnregisterAsAttacker();
 		}
@@ -269,6 +279,15 @@ void AEnemyBase::SetEnemyState(EEnemyState NewState)
 bool AEnemyBase::IsInCombat() const
 {
 	return CurrentState == EEnemyState::Chasing ||
+		   CurrentState == EEnemyState::Attacking ||
+		   CurrentState == EEnemyState::OuterCircle ||
+		   CurrentState == EEnemyState::InnerCircle;
+}
+
+bool AEnemyBase::IsInCombatZone() const
+{
+	return CurrentState == EEnemyState::OuterCircle ||
+		   CurrentState == EEnemyState::InnerCircle ||
 		   CurrentState == EEnemyState::Attacking;
 }
 
@@ -687,6 +706,15 @@ void AEnemyBase::SetMovementSpeed(float SpeedMultiplier)
 	if (GetCharacterMovement())
 	{
 		GetCharacterMovement()->MaxWalkSpeed = BaseMaxWalkSpeed * SpeedMultiplier;
+	}
+}
+
+void AEnemyBase::SetOuterCircleSpeed()
+{
+	if (GetCharacterMovement())
+	{
+		// Outer circle speed — slow, ~25% of base
+		GetCharacterMovement()->MaxWalkSpeed = BaseMaxWalkSpeed * 0.25f;
 	}
 }
 

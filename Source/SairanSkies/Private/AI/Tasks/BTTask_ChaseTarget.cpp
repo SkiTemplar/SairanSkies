@@ -26,20 +26,28 @@ EBTNodeResult::Type UBTTask_ChaseTarget::ExecuteTask(UBehaviorTreeComponent& Own
 	if (!Target) return EBTNodeResult::Failed;
 
 	Enemy->SetChaseSpeed();
+	Enemy->SetEnemyState(EEnemyState::Chasing);
 
-	// MoveToActor acceptance radius is measured between capsule edges,
-	// but GetDistanceToTarget() measures between actor centers.
-	// Use a small acceptance so the AI gets close enough.
-	float MoveAcceptance = FMath::Max(Enemy->CombatConfig.MaxAttackDistance - 100.0f, 400.0f);
+	// Chase until we reach the OUTER CIRCLE radius
+	float AcceptanceRadius = Enemy->CombatConfig.OuterCircleRadius - 50.0f;
 
-	EPathFollowingRequestResult::Type Result = AIController->MoveToActor(Target, MoveAcceptance);
+	EPathFollowingRequestResult::Type Result = AIController->MoveToActor(Target, AcceptanceRadius);
 	if (Result == EPathFollowingRequestResult::Failed)
 	{
 		return EBTNodeResult::Failed;
 	}
 
-	UE_LOG(LogTemp, Verbose, TEXT("Chase: %s persiguiendo a %s (dist: %.0f)"),
-		*Enemy->GetName(), *Target->GetName(), Enemy->GetDistanceToTarget());
+	// If already in range, succeed immediately
+	float Dist = Enemy->GetDistanceToTarget();
+	if (Dist <= Enemy->CombatConfig.OuterCircleRadius)
+	{
+		AIController->StopMovement();
+		UE_LOG(LogTemp, Log, TEXT("Chase: %s ya en outer circle (dist=%.0f)"), *Enemy->GetName(), Dist);
+		return EBTNodeResult::Succeeded;
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("Chase: %s persiguiendo a %s (dist=%.0f, objetivo=%.0f)"),
+		*Enemy->GetName(), *Target->GetName(), Dist, Enemy->CombatConfig.OuterCircleRadius);
 
 	return EBTNodeResult::InProgress;
 }
@@ -60,12 +68,13 @@ void UBTTask_ChaseTarget::TickTask(UBehaviorTreeComponent& OwnerComp, uint8* Nod
 		return;
 	}
 
-	// Use center-to-center distance for the range check
 	float CurrentDist = Enemy->GetDistanceToTarget();
 
-	if (CurrentDist <= Enemy->CombatConfig.MaxAttackDistance)
+	// Reached the outer circle
+	if (CurrentDist <= Enemy->CombatConfig.OuterCircleRadius)
 	{
 		AIController->StopMovement();
+		UE_LOG(LogTemp, Log, TEXT("Chase: %s llegó al outer circle (dist=%.0f)"), *Enemy->GetName(), CurrentDist);
 		FinishLatentTask(OwnerComp, EBTNodeResult::Succeeded);
 		return;
 	}
@@ -74,8 +83,8 @@ void UBTTask_ChaseTarget::TickTask(UBehaviorTreeComponent& OwnerComp, uint8* Nod
 	EPathFollowingStatus::Type MoveStatus = AIController->GetMoveStatus();
 	if (MoveStatus == EPathFollowingStatus::Idle || MoveStatus == EPathFollowingStatus::Waiting)
 	{
-		float MoveAcceptance = FMath::Max(Enemy->CombatConfig.MaxAttackDistance - 100.0f, 10.0f);
-		AIController->MoveToActor(Target, MoveAcceptance);
+		float AcceptanceRadius = Enemy->CombatConfig.OuterCircleRadius - 50.0f;
+		AIController->MoveToActor(Target, AcceptanceRadius);
 	}
 }
 
@@ -88,7 +97,5 @@ EBTNodeResult::Type UBTTask_ChaseTarget::AbortTask(UBehaviorTreeComponent& Owner
 
 FString UBTTask_ChaseTarget::GetStaticDescription() const
 {
-	return TEXT("Chase target until in attack range");
+	return TEXT("Chase target until reaching outer circle (~5m)");
 }
-
-

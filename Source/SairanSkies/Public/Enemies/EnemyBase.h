@@ -140,6 +140,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Enemy|State")
 	bool IsInCombat() const;
 
+	/** Returns true if enemy is in any combat-related state (including circles) */
+	UFUNCTION(BlueprintPure, Category = "Enemy|State")
+	bool IsInCombatZone() const;
+
 	UFUNCTION(BlueprintPure, Category = "Enemy|State")
 	bool CanSeeTarget() const;
 
@@ -266,6 +270,10 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Enemy|Movement")
 	void SetMovementSpeed(float SpeedMultiplier);
+
+	/** Velocidad lenta para el círculo exterior */
+	UFUNCTION(BlueprintCallable, Category = "Enemy|Movement")
+	void SetOuterCircleSpeed();
 
 	// Velocidad con variación natural
 	UFUNCTION(BlueprintCallable, Category = "Enemy|Movement")

@@ -1,71 +1,151 @@
-# Enemy AI — Behaviour Tree & Blackboard
+# Enemy AI — Behaviour Tree & Blackboard (Sistema de Dos Círculos)
+
+> **Última actualización:** Febrero 2026  
+> **Sistema:** Modelo de Dos Círculos (Outer Circle + Inner Circle)
 
 ---
 
-## 1. Blackboard — `BB_EnemyDefault`
-
-| Key                | Tipo           | Para qué                              |
-|--------------------|----------------|----------------------------------------|
-| `TargetActor`      | Object (Actor) | Jugador detectado                      |
-| `TargetLocation`   | Vector         | Posición destino (target o patrulla)   |
-| `EnemyState`       | Int            | Estado actual del enemigo              |
-| `CanSeeTarget`     | Bool           | ¿Ve al jugador?                        |
-| `PatrolIndex`      | Int            | Punto de patrulla actual               |
-| `DistanceToTarget` | Float          | Distancia al jugador                   |
-| `CanAttack`        | Bool           | Cooldown listo + hay hueco de atacante |
-
----
-
-## 2. Lógica
+## 1. Concepto — Dos Círculos
 
 ```
-¿Tiene target?
-  SÍ → Chase Target (persigue con chance de pausa baja)
-       → Llega al rango → Attack Target (task autónomo):
-         1. Se acerca al jugador
-         2. Espera turno si hay muchos atacando
-         3. Elige combo por distancia (cerca=más golpes)
-         4. Ejecuta combo con rotación debug alternante
-         5. Termina → vuelve a Chasing
+                    ┌──────────────────────────────────────┐
+                    │         OUTER CIRCLE (~5m)           │
+                    │                                      │
+                    │    🧟 taunt    🧟 sway              │
+                    │         ┌──────────────┐             │
+                    │         │ INNER CIRCLE │             │
+                    │    🧟   │   (ataque)   │   🧟       │
+                    │  feint  │   🧟→⚔️🧑    │  esperando │
+                    │         │              │             │
+                    │         └──────────────┘             │
+                    │    🧟 reposicionándose               │
+                    │                                      │
+                    └──────────────────────────────────────┘
+```
 
-  NO → ¿Investigando?
-         SÍ → Ir a última posición conocida
-         NO → Patrullar
+| Zona           | Radio         | Qué hacen                                          |
+|----------------|---------------|-----------------------------------------------------|
+| **Fuera**      | > 500 cm      | Persiguen al jugador (Chase)                        |
+| **Outer Circle** | ~420–580 cm | Esperan, tauntean, fingen avanzar, sway lateral    |
+| **Inner Circle** | 100–200 cm  | Atacan (máx 2 simultáneos). Combo por distancia    |
+
+---
+
+## 2. Blackboard — `BB_EnemyDefault`
+
+| Key                | Tipo           | Para qué                                        |
+|--------------------|----------------|--------------------------------------------------|
+| `TargetActor`      | Object (Actor) | Jugador detectado                                |
+| `TargetLocation`   | Vector         | Posición destino (target o patrulla)             |
+| `EnemyState`       | Int            | Estado actual (Idle/Patrol/Chase/Outer/Inner/Attack...) |
+| `CanSeeTarget`     | Bool           | ¿Ve al jugador?                                  |
+| `PatrolIndex`      | Int            | Punto de patrulla actual                         |
+| `DistanceToTarget` | Float          | Distancia al jugador (centro a centro)           |
+| `CanAttack`        | Bool           | Está en inner circle + cooldown listo            |
+
+---
+
+## 3. Estados del Enemigo (`EEnemyState`)
+
+```
+Idle → Patrolling → [detecta jugador] → Chasing → OuterCircle → InnerCircle → Attacking
+                                              ↑                      │              │
+                                              │                      ↓              ↓
+                                              │                 OuterCircle ← (probabilidad)
+                                              │                      │
+                                              └──────────────────────┘ (jugador se aleja)
+```
+
+| Estado         | Valor | Descripción                                         |
+|----------------|-------|-----------------------------------------------------|
+| `Idle`         | 0     | Sin hacer nada                                      |
+| `Patrolling`   | 1     | Siguiendo PatrolPath                                |
+| `Investigating`| 2     | Yendo a última posición conocida                    |
+| `Chasing`      | 3     | Persiguiendo al jugador hasta outer circle          |
+| `OuterCircle`  | 4     | En el círculo exterior, taunting/feints             |
+| `InnerCircle`  | 5     | Dentro del círculo interior, preparado para atacar  |
+| `Attacking`    | 6     | Ejecutando combo de ataque                          |
+| `Conversing`   | 7     | Conversando con otro enemigo                        |
+| `Dead`         | 8     | Muerto                                              |
+
+---
+
+## 4. Flujo Completo
+
+```
+1. Enemigo patrullando...
+2. Detecta al jugador (vista/oído/alerta de aliado)
+3. CHASE: persigue hasta llegar al outer circle (~5m)
+4. OUTER CIRCLE:
+   - Se posiciona en el anillo exterior con golden-angle
+   - Hace sway lateral (se balancea)
+   - Hace taunts (amaga avanzar hacia el jugador y retrocede)
+   - Cada 0.5s comprueba si hay hueco en el inner circle
+   - Si el jugador se mueve, reacciona con delay aleatorio (0.4–1.5s)
+5. INNER CIRCLE (cuando GroupCombatManager le da permiso):
+   - Se acerca a distancia aleatoria (100–200 cm del jugador)
+   - Elige combo probabilístico según distancia
+   - Ejecuta combo completo (windup → strike → recovery → gap → ...)
+   - Rotación debug alternante por golpe (+25°/-25°)
+   - Al terminar:
+     * 25% probabilidad: se queda en inner circle → ataca de nuevo
+     * 75% probabilidad: vuelve al outer circle → otro enemigo avanza
 ```
 
 ---
 
-## 3. Árbol Completo
+## 5. Árbol Completo — Behavior Tree
 
 ```
 ROOT
 │
-└─ SELECTOR
+└─ SELECTOR (prioridad de arriba a abajo)
    │
-   ├─ [SERVICE] Update Enemy State
-   │  Interval: 0.25  |  RandomDeviation: 0.05
+   ├─ [SERVICE] Update Enemy State                    ← cada 0.25s
+   │  Actualiza BB: TargetActor, EnemyState,
+   │  CanSeeTarget, DistanceToTarget, CanAttack
    │
    │
-   │  ╔═══════════════════════════════════════════════════╗
-   │  ║  ① COMBATE                                       ║
-   │  ╚═══════════════════════════════════════════════════╝
+   │  ╔═══════════════════════════════════════════════════════════╗
+   │  ║  ① COMBATE — Dos Círculos                               ║
+   │  ╚═══════════════════════════════════════════════════════════╝
    │
    ├─ SEQUENCE "Combat"
    │  │
-   │  ├─ [DECORATOR] Has Target
-   │  │  Observer Aborts: Both
+   │  ├─ [DECORATOR] Has Target                       ← ¿tiene target?
+   │  │  Observer Aborts: Both                          si pierde target, aborta
    │  │
-   │  ├─ TASK  Chase Target                  ← persigue hasta rango
-   │  │        (usa GetDistanceToTarget entre centros)
+   │  ├─ TASK  Chase Target                           ← persigue hasta ~5m
+   │  │        Llega al OuterCircleRadius (500 cm)
+   │  │        Velocidad: ChaseSpeedMultiplier (0.45)
    │  │
-   │  └─ TASK  Attack Target                 ← TODO en uno:
-   │           (approach + wait turn +          acercarse, esperar,
-   │            combo + rotación debug)         atacar, volver
+   │  ├─ TASK  Outer Circle Behavior                  ← espera/tauntea
+   │  │        CircleSpeedMultiplier: 0.25
+   │  │        TauntChancePerSecond: 0.12
+   │  │        TauntLungeDistance: 150
+   │  │        SwayAmplitude: 40
+   │  │        InnerCircleCheckInterval: 0.5
+   │  │        RepositionInterval: 4.0 ± 1.5
+   │  │        → Sale con Succeeded cuando hay hueco
+   │  │          en el inner circle
+   │  │
+   │  └─ TASK  Attack Target                          ← ataque autónomo
+   │           Approach → WindUp → Strike → Recovery
+   │           → ComboGap → (siguiente golpe o Finished)
+   │           WindUpDuration: 0.35
+   │           StrikeDuration: 0.25
+   │           RecoveryDuration: 0.5
+   │           ComboGapDuration: 0.35
+   │           DamageVariance: ±15%
+   │           DebugRotationDegrees: ±25°
+   │           DebugLungeDistance: 60
+   │           → Al terminar: 25% se queda inner,
+   │             75% vuelve a outer (loop al nodo anterior)
    │
    │
-   │  ╔═══════════════════════════════════════════════════╗
-   │  ║  ② INVESTIGACIÓN                                 ║
-   │  ╚═══════════════════════════════════════════════════╝
+   │  ╔═══════════════════════════════════════════════════════════╗
+   │  ║  ② INVESTIGACIÓN                                        ║
+   │  ╚═══════════════════════════════════════════════════════════╝
    │
    ├─ SEQUENCE "Investigate"
    │  │
@@ -78,9 +158,9 @@ ROOT
    │           WaitTimeAtPoint: 2.0
    │
    │
-   │  ╔═══════════════════════════════════════════════════╗
-   │  ║  ③ PATRULLA                                      ║
-   │  ╚═══════════════════════════════════════════════════╝
+   │  ╔═══════════════════════════════════════════════════════════╗
+   │  ║  ③ PATRULLA (con conversación entre enemigos)           ║
+   │  ╚═══════════════════════════════════════════════════════════╝
    │
    └─ SEQUENCE "Patrol"
       │
@@ -99,169 +179,159 @@ ROOT
                bCheckForConversation: true
 ```
 
-### Cómo funciona:
+---
 
-**Con target (rama ①):**
-1. `Has Target` = true → entra en Sequence "Combat"
-2. `Chase Target` persigue hasta `MaxAttackDistance` → `Succeeded`
-3. `Attack Target` toma el control completo:
-   - **Approach**: se acerca al 80% de MaxAttackDistance
-   - **WaitTurn**: espera mirando al jugador si ya hay 3 atacantes
-   - **WindUp→Strike→Recovery**: ejecuta cada golpe con rotación debug
-   - **Finished**: se desregistra, estado→Chasing → la Sequence termina → vuelve a ①
+## 6. Tasks C++ — Referencia Rápida
 
-**Sin target (rama ③):**
-- Patrulla en loop: find → move → pause → wait → repeat
+### `BTTask_ChaseTarget`
+- **Qué hace:** Persigue al jugador hasta llegar al `OuterCircleRadius` (~500 cm)
+- **Velocidad:** `ChaseSpeedMultiplier` (0.45 × 200 = 90 cm/s)
+- **Termina:** `Succeeded` cuando `DistanceToTarget ≤ OuterCircleRadius`
 
-**Investigando (rama ②):**
-- Va a última posición → busca alrededor → si no encuentra → patrulla
+### `BTTask_OuterCircleBehavior` ⭐ NUEVO
+- **Qué hace:** Comportamiento en el círculo exterior
+- **Movimiento:** Se posiciona en el anillo con golden-angle, sway lateral
+- **Taunts:** Amaga avanzar (~150 cm) hacia el jugador y retrocede
+- **Reacción al jugador:** Si el jugador se mueve >150 cm, reacciona con delay (0.4–1.5s)
+- **Termina:** `Succeeded` cuando `GroupCombatManager.RequestInnerCircleEntry()` devuelve `true`
+
+### `BTTask_AttackTarget`
+- **Qué hace:** Ataque completo dentro del inner circle
+- **Fases:** Approach → WindUp → Strike → Recovery → ComboGap → Finished
+- **Combo por distancia:**
+  - Normaliza distancia (0=cerca, 1=lejos)
+  - Combo[0] tiene más peso cuando CERCA
+  - Combo[N-1] tiene más peso cuando LEJOS
+  - Más golpes cuanto más cerca
+- **Debug visual:** Rotación alternante ±25° por golpe + lunge 60 cm
+- **Al terminar:** 25% se queda en inner, 75% vuelve a outer
 
 ---
 
-## 4. Attack Target — Detalle
+## 7. GroupCombatManager — Coordinación
 
-Task autónomo con 8 fases internas:
+| Método                        | Qué hace                                              |
+|-------------------------------|-------------------------------------------------------|
+| `RegisterCombatEnemy(E)`      | Registra enemigo → va al outer circle                 |
+| `UnregisterCombatEnemy(E)`    | Saca al enemigo de todo                               |
+| `RequestInnerCircleEntry(E)`  | ¿Hay hueco? → mueve de outer a inner                  |
+| `OnAttackFinished(E, bStay)`  | Tras atacar: se queda o sale. Devuelve siguiente atacante |
+| `ForceToOuterCircle(E)`       | Fuerza vuelta al outer (knockback, etc.)              |
+| `GetOuterCirclePosition(E,T)` | Posición en el anillo exterior (golden-angle)         |
+| `GetInnerCircleAttackPosition(E,T)` | Posición random en rango de ataque              |
 
-```
-WAIT COOLDOWN → APPROACH → WAIT TURN → [WindUp → Strike → Recovery → ComboGap] × N → FINISHED
-```
-
-### Fases:
-
-| Fase         | Duración | Qué pasa                                          |
-|--------------|----------|---------------------------------------------------|
-| WaitCooldown | variable | Espera quieto mirando al jugador hasta que el cooldown termine |
-| Approach     | variable | Se acerca al jugador (MoveToActor)                |
-| WaitTurn     | max 5s   | Espera si ya hay 3+ enemigos atacando             |
-| WindUp       | 0.3s     | Anticipación antes del golpe                       |
-| Strike       | 0.3s     | Aplica daño + montaje + rotación ±25° + lunge 50u |
-| Recovery     | 0.4s     | Pausa post-golpe                                   |
-| ComboGap     | 0.4s     | Pausa entre golpes del combo                       |
-| Finished     | instant  | UnregisterAttacker, estado→Chasing                 |
-
-### Combo por distancia:
-
-El número de golpes depende de la distancia al jugador cuando empieza el combo:
-
-```
-Distancia cerca (≈ MinAttackDistance)  → combo largo (todos los montajes)
-Distancia lejos (≈ MaxAttackDistance)  → combo corto (1 golpe)
-```
-
-Se usa el array `AnimationConfig.AttackMontages` del enemigo:
-- **0 montajes** → siempre 1 golpe sin animación
-- **3 montajes** → cerca: 3 golpes, lejos: 1-2 golpes
-
-### Debug visual — Rotación + Lunge:
-
-Cada golpe produce dos efectos visuales:
-1. **Rotación ±25°**: alterna dirección por golpe (golpe 1: +25°, golpe 2: -25°, etc.)
-2. **Lunge 50 unidades**: el enemigo avanza hacia el jugador al golpear, luego vuelve a su posición
-
-Esto se ve incluso sin montajes de animación — el enemigo "gira y embiste" cada golpe.
-Se restaura todo después de cada Strike.
-
-### Parámetros del Task:
-
-| Propiedad           | Default | Descripción                        |
-|---------------------|---------|------------------------------------|
-| WindUpDuration      | 0.3     | Anticipación antes del golpe       |
-| StrikeDuration      | 0.3     | Duración del golpe                 |
-| RecoveryDuration    | 0.4     | Pausa post-golpe                   |
-| ComboGapDuration    | 0.4     | Pausa entre golpes                 |
-| DamageVariance      | 0.15    | ±15% varianza de daño              |
-| MaxWaitTurnTime     | 5.0     | Timeout esperando turno            |
-| DebugRotationDegrees| 25.0    | Grados de rotación debug por golpe |
-| DebugLungeDistance  | 50.0    | Unidades que avanza al golpear     |
+**Configuración:**
+- `MaxInnerCircleEnemies`: 2 (se hereda de `CombatConfig.MaxSimultaneousAttackers`)
+- `InnerCircleCooldown`: 2.0s antes de poder re-entrar
 
 ---
 
-## 5. Montaje en el Editor
+## 8. Configuración del Enemigo (`FEnemyCombatConfig`)
 
-### 5.1 Assets
-1. Content Browser → AI → **Blackboard** → `BB_EnemyDefault` → crear las 7 keys
-2. Content Browser → AI → **Behavior Tree** → `BT_EnemyDefault`
-
-### 5.2 Montar
-
-**Root → Selector:**
-1. Añadir **Selector**
-2. Service: **Update Enemy State**
-
-**① Combat (1er hijo):**
-1. **Sequence**
-2. Decorator: **Has Target** → Aborts `Both`
-3. Task 1: **Chase Target**
-4. Task 2: **Attack Target**
-
-**② Investigate (2do hijo):**
-1. **Sequence**
-2. Decorator: **Check Enemy State** → `Investigating` → Aborts `Both`
-3. Task: **Investigate**
-
-**③ Patrol (3er hijo):**
-1. **Sequence**
-2. Decorator: **Has Target** → **Inverse ✓** → Aborts `Both`
-3. Tasks: **Find Patrol Point** → **Move To Location** → **Idle Behavior** → **Wait At Patrol Point**
-
-### 5.3 Asignar al Enemigo
-- `BehaviorTree` → `BT_EnemyDefault`
-- `PatrolPath` → actor PatrolPath del nivel
-- `AnimationConfig.AttackMontages` → **añadir 2-3 montajes** (define el combo)
+| Parámetro                      | Default | Descripción                                 |
+|--------------------------------|---------|---------------------------------------------|
+| `OuterCircleRadius`            | 500 cm  | Radio del círculo exterior                   |
+| `OuterCircleVariation`         | 80 cm   | Variación ± del radio exterior               |
+| `MinAttackPositionDist`        | 100 cm  | Distancia mín. al atacar                     |
+| `MaxAttackPositionDist`        | 200 cm  | Distancia máx. al atacar                     |
+| `ChanceToStayInnerAfterAttack` | 0.25    | Probabilidad de quedarse tras atacar          |
+| `PlayerMoveReactionDelayMin`   | 0.4 s   | Delay mín. de reacción al movimiento         |
+| `PlayerMoveReactionDelayMax`   | 1.5 s   | Delay máx. de reacción al movimiento         |
+| `BaseDamage`                   | 10.0    | Daño base por golpe                          |
+| `AttackCooldown`               | 2.0 s   | Cooldown entre ataques                       |
+| `MaxSimultaneousAttackers`     | 2       | Máx. enemigos en inner circle                |
 
 ---
 
-## 6. Config del Enemigo
+## 9. Velocidades
 
-### CombatConfig
-| Propiedad               | Default | Qué controla                  |
-|-------------------------|---------|-------------------------------|
-| MinAttackDistance        | 100     | Distancia cercana (más combo) |
-| MaxAttackDistance        | 150     | Distancia máxima para atacar  |
-| BaseDamage              | 10      | Daño base por golpe           |
-| AttackCooldown          | 1.5     | Segundos entre combos         |
-| MaxSimultaneousAttackers| 3       | Cuántos atacan a la vez       |
-
-### PatrolConfig
-| Propiedad             | Default |
-|-----------------------|---------|
-| PatrolSpeedMultiplier | 0.25    |
-| ChaseSpeedMultiplier  | 0.5     |
-
-### PerceptionConfig
-| Propiedad      | Default |
-|----------------|---------|
-| SightRadius    | 2000    |
-| LoseSightTime  | 5.0     |
-| HearingRadius  | 1000    |
-
-### Velocidad Base
-| BaseMaxWalkSpeed | 350 | Velocidad máxima absoluta |
-Patrol real = 350 × 0.25 = **87.5**
-Chase real = 350 × 0.5 = **175**
+| Estado         | Multiplier | Velocidad real (base=200) |
+|----------------|-----------|---------------------------|
+| Patrulla       | 0.20      | 40 cm/s                   |
+| Persecución    | 0.45      | 90 cm/s                   |
+| Outer Circle   | 0.25      | 50 cm/s                   |
+| Inner/Attack   | 0.50      | 100 cm/s                  |
 
 ---
 
-## 7. Piezas C++
+## 10. Algoritmo de Selección de Combo
 
-### Tasks usadas en el BT
-| Clase                       | Nombre en Editor     | Qué hace                                     |
-|-----------------------------|----------------------|-----------------------------------------------|
-| `UBTTask_ChaseTarget`       | Chase Target         | Persigue hasta MaxAttackDistance               |
-| `UBTTask_AttackTarget`      | Attack Target        | Approach + wait turn + combo + debug rotation |
-| `UBTTask_FindPatrolPoint`   | Find Patrol Point    | Siguiente punto de patrulla                   |
-| `UBTTask_MoveToLocation`    | Move To Location     | Moverse al TargetLocation del BB              |
-| `UBTTask_IdleBehavior`      | Idle Behavior        | Pausa aleatoria entre puntos                  |
-| `UBTTask_WaitAtPatrolPoint` | Wait At Patrol Point | Esperar + mirar alrededor                     |
-| `UBTTask_Investigate`       | Investigate          | Buscar en última posición conocida            |
+```
+Dado:
+  N = número de montajes de ataque
+  dist = distancia actual al jugador
+  T = normalizar(dist, MinAttackPositionDist, MaxAttackPositionDist) → [0, 1]
 
+Para cada combo i (0..N-1):
+  idealT(i) = i / (N-1)          ← 0=cerca, 1=lejos
+  peso(i) = max(0.1, 1.0 - |idealT - T|)
+  peso(i) *= (1.0 + (1.0 - idealT) * 0.3)   ← boost para combos cercanos
 
-### Service
-| `UBTService_UpdateEnemyState` | Update Enemy State | Selector raíz |
+Selección: random ponderado por pesos
 
-### Decorators
-| Tipo        | Nombre            | Dónde va               | Config                          |
-|-------------|-------------------|------------------------|---------------------------------|
-| C++ custom  | Has Target        | Sequence "Combat"      | Aborts: Both                    |
-| C++ custom  | Has Target (inv)  | Sequence "Patrol"      | Inverse ✓, Aborts: Both         |
-| C++ custom  | Check Enemy State | Sequence "Investigate" | State: Investigating, Aborts: Both |
+Número de golpes:
+  closeWeight = 1.0 - T
+  meanHits = lerp(1, N, closeWeight)
+  totalHits = round(meanHits ± 0.5)
+```
+
+**Ejemplo con 3 montajes y T=0.2 (cerca):**
+```
+combo[0]: idealT=0.0, peso=max(0.1, 1-0.2)=0.8  × 1.3 = 1.04  ← FAVORITO
+combo[1]: idealT=0.5, peso=max(0.1, 1-0.3)=0.7  × 1.15= 0.81
+combo[2]: idealT=1.0, peso=max(0.1, 1-0.8)=0.2  × 1.0 = 0.20
+→ combo[0] tiene ~50% probabilidad, combo[2] ~10%
+→ totalHits ≈ 3 golpes (cerca = más agresivo)
+```
+
+**Ejemplo con 3 montajes y T=0.9 (lejos):**
+```
+combo[0]: idealT=0.0, peso=max(0.1, 1-0.9)=0.1  × 1.3 = 0.13
+combo[1]: idealT=0.5, peso=max(0.1, 1-0.4)=0.6  × 1.15= 0.69
+combo[2]: idealT=1.0, peso=max(0.1, 1-0.1)=0.9  × 1.0 = 0.90  ← FAVORITO
+→ combo[2] tiene ~52% probabilidad, combo[0] ~8%
+→ totalHits ≈ 1 golpe (lejos = ataque rápido)
+```
+
+---
+
+## 11. Cómo montar en el Editor de UE5
+
+### Crear el Blackboard
+1. Content Browser → clic derecho → Artificial Intelligence → Blackboard
+2. Nombre: `BB_EnemyDefault`
+3. Añadir las 7 keys de la tabla de arriba (tipos exactos)
+
+### Crear el Behavior Tree
+1. Content Browser → clic derecho → Artificial Intelligence → Behavior Tree
+2. Nombre: `BT_Enemy`
+3. Asignar `BB_EnemyDefault` como Blackboard Asset
+4. Montar el árbol siguiendo la estructura de la sección 5
+
+### Asignar al enemigo
+1. Abrir `BP_NormalEnemy` (Blueprint hijo de `ANormalEnemy`)
+2. En Details → `Behavior Tree` → seleccionar `BT_Enemy`
+3. Verificar que `AIControllerClass` = `AEnemyAIController`
+
+### Notas importantes
+- El `SERVICE Update Enemy State` va en el **nodo raíz SELECTOR** (no en un sequence)
+- Los `DECORATOR` van en el **primer nodo** de cada Sequence
+- `Has Target` en Combat: condición normal. En Patrol: condición **invertida**
+- El Sequence "Combat" funciona como loop: Chase → Outer → Attack → (si vuelve a outer, el Sequence falla y se re-ejecuta)
+
+---
+
+## 12. ⚠️ Tasks obsoletos — NO usar
+
+| Task                        | Estado      | Reemplazado por                    |
+|-----------------------------|-------------|-------------------------------------|
+| `BTTask_CircleTarget`       | ❌ DEPRECATED | `BTTask_OuterCircleBehavior`       |
+| `BTTask_WaitForAttackTurn`  | ❌ ELIMINADO  | Integrado en `BTTask_OuterCircleBehavior` + `GroupCombatManager` |
+
+**En el BT debes usar:**
+- ✅ `Chase Target` → para perseguir
+- ✅ `Outer Circle Behavior` → para esperar/tauntear en el círculo exterior
+- ✅ `Attack Target` → para atacar en el inner circle
+
+**NO uses `Circle Target (Flank)`** — es el sistema antiguo y no funciona con el nuevo `GroupCombatManager`.
+

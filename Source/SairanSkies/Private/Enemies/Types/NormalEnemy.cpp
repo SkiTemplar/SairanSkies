@@ -12,12 +12,20 @@ ANormalEnemy::ANormalEnemy()
 	// Default values for normal enemy
 	MaxHealth = 100.0f;
 
-	// Combat configuration
+	// Combat configuration — Two Circles
+	CombatConfig.OuterCircleRadius = 500.0f;
+	CombatConfig.OuterCircleVariation = 80.0f;
+	CombatConfig.MinAttackPositionDist = 100.0f;
+	CombatConfig.MaxAttackPositionDist = 200.0f;
+	CombatConfig.ChanceToStayInnerAfterAttack = 0.25f;
+	CombatConfig.PlayerMoveReactionDelayMin = 0.4f;
+	CombatConfig.PlayerMoveReactionDelayMax = 1.5f;
 	CombatConfig.MinAttackDistance = 100.0f;
-	CombatConfig.MaxAttackDistance = 150.0f;
+	CombatConfig.MaxAttackDistance = 200.0f;
 	CombatConfig.BaseDamage = 10.0f;
-	CombatConfig.AttackCooldown = 1.5f;
+	CombatConfig.AttackCooldown = 2.0f;
 	CombatConfig.AllyDetectionRadius = 1500.0f;
+	CombatConfig.MaxSimultaneousAttackers = 2;
 	CombatConfig.MinAlliesForAggression = 2;
 
 	// Perception configuration
@@ -30,8 +38,8 @@ ANormalEnemy::ANormalEnemy()
 	PerceptionConfig.InvestigationRadius = 400.0f;
 
 	// Patrol configuration
-	PatrolConfig.PatrolSpeedMultiplier = 0.25f;
-	PatrolConfig.ChaseSpeedMultiplier = 0.5f;
+	PatrolConfig.PatrolSpeedMultiplier = 0.2f;
+	PatrolConfig.ChaseSpeedMultiplier = 0.45f;
 	PatrolConfig.WaitTimeAtPatrolPoint = 2.0f;
 	PatrolConfig.PatrolPointAcceptanceRadius = 100.0f;
 	PatrolConfig.bRandomPatrol = false;
@@ -86,6 +94,14 @@ void ANormalEnemy::OnStateEnter(EEnemyState NewState)
 	switch (NewState)
 	{
 	case EEnemyState::Chasing:
+		SetChaseSpeed();
+		break;
+
+	case EEnemyState::OuterCircle:
+		SetOuterCircleSpeed();
+		break;
+
+	case EEnemyState::InnerCircle:
 		SetChaseSpeed();
 		break;
 

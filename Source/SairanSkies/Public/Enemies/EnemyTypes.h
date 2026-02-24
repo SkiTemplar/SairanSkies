@@ -21,6 +21,8 @@ enum class EEnemyState : uint8
 	Patrolling		UMETA(DisplayName = "Patrolling"),
 	Investigating	UMETA(DisplayName = "Investigating"),
 	Chasing			UMETA(DisplayName = "Chasing"),
+	OuterCircle		UMETA(DisplayName = "Outer Circle"),
+	InnerCircle		UMETA(DisplayName = "Inner Circle"),
 	Attacking		UMETA(DisplayName = "Attacking"),
 	Conversing		UMETA(DisplayName = "Conversing"),
 	Dead			UMETA(DisplayName = "Dead")
@@ -48,12 +50,43 @@ struct FEnemyCombatConfig
 {
 	GENERATED_BODY()
 
+	// ========== DOS CÍRCULOS ==========
+
+	/** Radio del círculo exterior — distancia donde los enemigos esperan/tauntan */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "TwoCircles")
+	float OuterCircleRadius = 500.0f;
+
+	/** Variación aleatoria del radio exterior (±) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "TwoCircles")
+	float OuterCircleVariation = 80.0f;
+
+	/** Distancia mínima para posicionarse al atacar (dentro del inner circle) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "TwoCircles")
+	float MinAttackPositionDist = 100.0f;
+
+	/** Distancia máxima para posicionarse al atacar */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "TwoCircles")
+	float MaxAttackPositionDist = 200.0f;
+
+	/** Probabilidad de quedarse en el inner circle tras atacar (0=siempre sale, 1=siempre se queda) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "TwoCircles", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float ChanceToStayInnerAfterAttack = 0.25f;
+
+	/** Delay mínimo antes de reaccionar cuando el jugador se aleja */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "TwoCircles")
+	float PlayerMoveReactionDelayMin = 0.4f;
+
+	/** Delay máximo antes de reaccionar cuando el jugador se aleja */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "TwoCircles")
+	float PlayerMoveReactionDelayMax = 1.5f;
+
+	// ========== ATAQUE ==========
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
-	float MinAttackDistance = 150.0f;
+	float MinAttackDistance = 100.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
 	float MaxAttackDistance = 200.0f;
-
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
 	float BaseDamage = 10.0f;
@@ -65,7 +98,7 @@ struct FEnemyCombatConfig
 	float AllyDetectionRadius = 1500.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
-	int32 MaxSimultaneousAttackers = 3;
+	int32 MaxSimultaneousAttackers = 2;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
 	int32 MinAlliesForAggression = 2;

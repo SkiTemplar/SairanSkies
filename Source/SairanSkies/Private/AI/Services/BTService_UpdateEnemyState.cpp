@@ -50,16 +50,20 @@ void UBTService_UpdateEnemyState::TickNode(UBehaviorTreeComponent& OwnerComp, ui
 	BlackboardComp->SetValueAsBool(AEnemyBase::BB_CanSeeTarget, Enemy->CanSeeTarget());
 	BlackboardComp->SetValueAsFloat(AEnemyBase::BB_DistanceToTarget, Enemy->GetDistanceToTarget());
 
-	// Update proximity priorities in GroupCombatManager
+	// Update proximity priorities in GroupCombatManager (if target exists)
 	if (UGroupCombatManager* CombatManager = GetWorld()->GetSubsystem<UGroupCombatManager>())
 	{
-		if (Enemy->GetCurrentTarget())
-		{
-			CombatManager->UpdateProximityPriorities(Enemy->GetCurrentTarget()->GetActorLocation());
-		}
+		// Update MaxInnerCircleEnemies from config
+		CombatManager->MaxInnerCircleEnemies = Enemy->CombatConfig.MaxSimultaneousAttackers;
 	}
 
-	BlackboardComp->SetValueAsBool(AEnemyBase::BB_CanAttack, Enemy->CanJoinAttack() && Enemy->CanAttackNow());
+	// CanAttack = enemy is in inner circle (or has space) AND attack cooldown is ready
+	bool bCanAttack = Enemy->CanAttackNow();
+	if (UGroupCombatManager* CombatManager = GetWorld()->GetSubsystem<UGroupCombatManager>())
+	{
+		bCanAttack = bCanAttack && CombatManager->IsInInnerCircle(Enemy);
+	}
+	BlackboardComp->SetValueAsBool(AEnemyBase::BB_CanAttack, bCanAttack);
 }
 
 FString UBTService_UpdateEnemyState::GetStaticDescription() const
