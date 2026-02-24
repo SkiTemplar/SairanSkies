@@ -8,6 +8,7 @@
 #include "Engine/StaticMesh.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "NiagaraComponent.h"
+#include "NiagaraFunctionLibrary.h"
 #include "NiagaraSystem.h"
 
 AWeaponBase::AWeaponBase()
@@ -31,10 +32,9 @@ AWeaponBase::AWeaponBase()
 	HitCollision->SetCollisionResponseToAllChannels(ECR_Ignore);
 	HitCollision->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
 
-	// Swing trail Niagara component (Lies of P style)
-	SwingTrailComponent = CreateDefaultSubobject<UNiagaraComponent>(TEXT("SwingTrail"));
-	SwingTrailComponent->SetupAttachment(WeaponMesh);
-	SwingTrailComponent->SetAutoActivate(false);
+	// NOTE: No persistent SwingTrailComponent. Trails are spawned dynamically
+	// per-attack via ActivateSwingTrail() / SwitchToBloodTrail() so they can
+	// coexist and let their particles expire naturally (Lies of P behaviour).
 }
 
 void AWeaponBase::BeginPlay()
@@ -220,40 +220,96 @@ void AWeaponBase::SetBlockingStance(bool bIsBlocking)
 	}
 }
 
-// ========== SWING TRAIL SYSTEM (Lies of P) ==========
+// ========== SWING TRAIL SYSTEM (Lies of P style) ==========
 
 void AWeaponBase::ActivateSwingTrail()
 {
-	bIsBloodTrailActive = false;
-	
-	if (SwingTrailComponent)
+	// Reset blood-trail guard for this new swing
+	bBloodTrailSpawnedThisSwing = false;
+
+	// Clean up stale pointers left from previous swings whose particles already finished
+	ActiveTrailComponents.RemoveAll([](UNiagaraComponent* C) { return !IsValid(C); });
+
+	if (!NormalSwingTrailFX || !WeaponMesh) return;
+
+	// Spawn a brand-new Niagara component attached to the weapon mesh.
+	// bAutoDestroy = true  → UE destroys the component once the system finishes,
+	//                        so we don't leak components between attacks.
+	UNiagaraComponent* NormalTrail = UNiagaraFunctionLibrary::SpawnSystemAttached(
+		NormalSwingTrailFX,
+		WeaponMesh,
+		NAME_None,
+		FVector::ZeroVector,
+		FRotator::ZeroRotator,
+		EAttachLocation::KeepRelativeOffset,
+		/*bAutoDestroy=*/ true
+	);
+
+	if (NormalTrail)
 	{
-		if (NormalSwingTrailFX)
-		{
-			SwingTrailComponent->SetAsset(NormalSwingTrailFX);
-		}
-		SwingTrailComponent->Activate(true);
+		NormalTrail->Activate(true);
+		ActiveTrailComponents.Add(NormalTrail);
 	}
 }
 
 void AWeaponBase::DeactivateSwingTrail()
 {
-	if (SwingTrailComponent)
+	// For every active trail component we want to STOP NEW EMISSION but let every
+	// already-alive particle run out its natural lifetime — exactly what you see in
+	// Lies of P where the arc fades rather than snapping off.
+	//
+	// Strategy:
+	//   1. Detach the Niagara component from the weapon mesh so it floats in world
+	//      space.  Particles keep moving at their last-calculated velocity and fade
+	//      naturally.  Visually the arc "stays in the air" while the sword moves on.
+	//   2. Do NOT call Deactivate() — that can kill live particles immediately if
+	//      the Niagara asset's Completion Action is set to "Kill".
+	//   3. bAutoDestroy=true (set at spawn) ensures UE destroys the component itself
+	//      once all its particles have expired, so there is no leak.
+	for (UNiagaraComponent* Comp : ActiveTrailComponents)
 	{
-		SwingTrailComponent->Deactivate();
+		if (!IsValid(Comp)) continue;
+
+		// Detach so it floats in world space — particles live out their lifetime.
+		Comp->DetachFromComponent(FDetachmentTransformRules::KeepWorldTransform);
+		// bAutoDestroy handles GC once system goes idle. No manual Deactivate needed.
 	}
-	bIsBloodTrailActive = false;
+
+	// Release our tracking references.  Components remain in the world until
+	// bAutoDestroy destroys them after all their particles expire.
+	ActiveTrailComponents.Empty();
+	bBloodTrailSpawnedThisSwing = false;
 }
 
 void AWeaponBase::SwitchToBloodTrail()
 {
-	if (bIsBloodTrailActive) return;
-	bIsBloodTrailActive = true;
+	// Guard: only spawn one blood trail per swing even if we hit multiple enemies.
+	if (bBloodTrailSpawnedThisSwing) return;
+	bBloodTrailSpawnedThisSwing = true;
 
-	if (SwingTrailComponent && BloodSwingTrailFX)
+	if (!BloodSwingTrailFX || !WeaponMesh) return;
+
+	// ── Key behaviour ──────────────────────────────────────────────────────────
+	// We do NOT touch the existing NormalTrail component at all.
+	// It keeps emitting exactly where it was, preserving the trail arc already
+	// drawn in the air.  We simply SPAWN A NEW component for the blood trail
+	// alongside it.  Both components run concurrently.
+	// ──────────────────────────────────────────────────────────────────────────
+
+	UNiagaraComponent* BloodTrail = UNiagaraFunctionLibrary::SpawnSystemAttached(
+		BloodSwingTrailFX,
+		WeaponMesh,
+		NAME_None,
+		FVector::ZeroVector,
+		FRotator::ZeroRotator,
+		EAttachLocation::KeepRelativeOffset,
+		/*bAutoDestroy=*/ true
+	);
+
+	if (BloodTrail)
 	{
-		SwingTrailComponent->SetAsset(BloodSwingTrailFX);
-		SwingTrailComponent->Activate(true);
+		BloodTrail->Activate(true);
+		ActiveTrailComponents.Add(BloodTrail);
 	}
 }
 
