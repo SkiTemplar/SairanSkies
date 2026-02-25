@@ -15,6 +15,7 @@
 #include "Character/CloneComponent.h"
 #include "Character/CheckpointComponent.h"
 #include "Weapons/WeaponBase.h"
+#include "Weapons/WeaponLerpComponent.h"
 #include "UI/PlayerHUDWidget.h"
 #include "Kismet/GameplayStatics.h"
 #include "NiagaraFunctionLibrary.h"
@@ -72,6 +73,50 @@ ASairanCharacter::ASairanCharacter()
 	GrappleHandAttachPoint->SetRelativeLocation(FVector(30.0f, -25.0f, 40.0f)); // Left side, mid height
 	GrappleHandAttachPoint->SetRelativeRotation(FRotator(0.0f, 0.0f, 0.0f)); // Pointing forward
 
+	// ========== WEAPON COMBO LERP POINTS ==========
+	// Idle/rest position
+	WeaponIdlePoint = CreateDefaultSubobject<USceneComponent>(TEXT("WeaponIdlePoint"));
+	WeaponIdlePoint->SetupAttachment(RootComponent);
+	WeaponIdlePoint->SetRelativeLocation(FVector(30.0f, 25.0f, 40.0f));
+	WeaponIdlePoint->SetRelativeRotation(FRotator(0.0f, 0.0f, -90.0f));
+
+	// Light attack combo points (5 positions around the character)
+	LightAttackPoint1 = CreateDefaultSubobject<USceneComponent>(TEXT("LightAttackPoint1"));
+	LightAttackPoint1->SetupAttachment(RootComponent);
+	LightAttackPoint1->SetRelativeLocation(FVector(60.0f, 40.0f, 60.0f));
+	LightAttackPoint1->SetRelativeRotation(FRotator(20.0f, 30.0f, -60.0f));
+
+	LightAttackPoint2 = CreateDefaultSubobject<USceneComponent>(TEXT("LightAttackPoint2"));
+	LightAttackPoint2->SetupAttachment(RootComponent);
+	LightAttackPoint2->SetRelativeLocation(FVector(50.0f, -30.0f, 50.0f));
+	LightAttackPoint2->SetRelativeRotation(FRotator(-15.0f, -20.0f, -110.0f));
+
+	LightAttackPoint3 = CreateDefaultSubobject<USceneComponent>(TEXT("LightAttackPoint3"));
+	LightAttackPoint3->SetupAttachment(RootComponent);
+	LightAttackPoint3->SetRelativeLocation(FVector(55.0f, 35.0f, 30.0f));
+	LightAttackPoint3->SetRelativeRotation(FRotator(10.0f, 45.0f, -80.0f));
+
+	LightAttackPoint4 = CreateDefaultSubobject<USceneComponent>(TEXT("LightAttackPoint4"));
+	LightAttackPoint4->SetupAttachment(RootComponent);
+	LightAttackPoint4->SetRelativeLocation(FVector(45.0f, -25.0f, 70.0f));
+	LightAttackPoint4->SetRelativeRotation(FRotator(-25.0f, -35.0f, -100.0f));
+
+	LightAttackPoint5 = CreateDefaultSubobject<USceneComponent>(TEXT("LightAttackPoint5"));
+	LightAttackPoint5->SetupAttachment(RootComponent);
+	LightAttackPoint5->SetRelativeLocation(FVector(65.0f, 20.0f, 45.0f));
+	LightAttackPoint5->SetRelativeRotation(FRotator(15.0f, 10.0f, -70.0f));
+
+	// Heavy attack combo points (2 positions - overhead swing down)
+	HeavyAttackPoint1 = CreateDefaultSubobject<USceneComponent>(TEXT("HeavyAttackPoint1"));
+	HeavyAttackPoint1->SetupAttachment(RootComponent);
+	HeavyAttackPoint1->SetRelativeLocation(FVector(20.0f, 15.0f, 110.0f));
+	HeavyAttackPoint1->SetRelativeRotation(FRotator(0.0f, 0.0f, -10.0f));
+
+	HeavyAttackPoint2 = CreateDefaultSubobject<USceneComponent>(TEXT("HeavyAttackPoint2"));
+	HeavyAttackPoint2->SetupAttachment(RootComponent);
+	HeavyAttackPoint2->SetRelativeLocation(FVector(70.0f, 10.0f, 10.0f));
+	HeavyAttackPoint2->SetRelativeRotation(FRotator(-60.0f, 15.0f, -90.0f));
+
 	// Camera boom (third person, over shoulder but a bit farther)
 	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
 	CameraBoom->SetupAttachment(RootComponent);
@@ -106,6 +151,9 @@ ASairanCharacter::ASairanCharacter()
 	// Checkpoint Component (auto-saves last grounded position for respawn)
 	CheckpointComponent = CreateDefaultSubobject<UCheckpointComponent>(TEXT("CheckpointComponent"));
 
+	// Weapon Lerp Component (handles combo position lerping)
+	WeaponLerpComponent = CreateDefaultSubobject<UWeaponLerpComponent>(TEXT("WeaponLerpComponent"));
+
 	// Initial state
 	TargetCameraDistance = DefaultCameraDistance;
 }
@@ -132,6 +180,9 @@ void ASairanCharacter::BeginPlay()
 
 	// Initialize health
 	CurrentHealth = MaxHealth;
+
+	// Initialize fall tracking
+	LastGroundedZ = GetActorLocation().Z;
 
 	// Create and display HUD widget
 	if (HUDWidgetClass)
@@ -188,7 +239,7 @@ float ASairanCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const
 	if (CurrentHealth <= 0.0f)
 	{
 		UE_LOG(LogTemp, Error, TEXT("Player: DEAD!"));
-		// TODO: death handling
+		HandleDeath();
 	}
 
 	return DamageApplied;
@@ -200,6 +251,31 @@ void ASairanCharacter::Tick(float DeltaTime)
 
 	UpdateCameraDistance(DeltaTime);
 	UpdateGravityScale();
+
+	// Track last grounded Z for landing sound logic
+	if (GetCharacterMovement() && !GetCharacterMovement()->IsFalling())
+	{
+		LastGroundedZ = GetActorLocation().Z;
+	}
+
+	// ========== FOOTSTEP SFX ==========
+	if (GetCharacterMovement() && !GetCharacterMovement()->IsFalling() && GetVelocity().Size2D() > 50.0f)
+	{
+		float Interval = bIsSprinting ? RunFootstepInterval : WalkFootstepInterval;
+		USoundBase* FootstepSound = bIsSprinting ? RunFootstepSound : WalkFootstepSound;
+
+		FootstepTimer += DeltaTime;
+		if (FootstepTimer >= Interval && FootstepSound)
+		{
+			FootstepTimer = 0.0f;
+			FVector FeetLocation = GetActorLocation() - FVector(0.0f, 0.0f, GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
+			UGameplayStatics::PlaySoundAtLocation(GetWorld(), FootstepSound, FeetLocation, 0.5f);
+		}
+	}
+	else
+	{
+		FootstepTimer = 0.0f;
+	}
 
 	// Update state based on movement
 	if (CurrentState != ECharacterState::Attacking && CurrentState != ECharacterState::Dashing && CurrentState != ECharacterState::Parrying)
@@ -270,6 +346,20 @@ void ASairanCharacter::Landed(const FHitResult& Hit)
 {
 	Super::Landed(Hit);
 	CurrentJumpCount = 0;
+
+	// Check if we should suppress landing SFX (after teleport)
+	if (bSuppressLandingSFX)
+	{
+		bSuppressLandingSFX = false;
+		return;
+	}
+
+	// Only play landing SFX/VFX if we fell from sufficient height
+	float FallDistance = LastGroundedZ - GetActorLocation().Z;
+	if (FallDistance < MinFallDistanceForLandSound)
+	{
+		return;
+	}
 
 	FVector FeetLocation = GetActorLocation() - FVector(0.0f, 0.0f, GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
 
@@ -407,8 +497,8 @@ void ASairanCharacter::Dash(const FInputActionValue& Value)
 
 void ASairanCharacter::LightAttack(const FInputActionValue& Value)
 {
-	// Cannot attack while aiming grapple
-	if (GrappleComponent && GrappleComponent->IsAiming())
+	// Cannot attack while aiming or being pulled by grapple
+	if (GrappleComponent && (GrappleComponent->IsAiming() || GrappleComponent->IsGrappling()))
 	{
 		return;
 	}
@@ -427,8 +517,8 @@ void ASairanCharacter::LightAttack(const FInputActionValue& Value)
 
 void ASairanCharacter::HeavyAttackStart(const FInputActionValue& Value)
 {
-	// Cannot attack while aiming grapple
-	if (GrappleComponent && GrappleComponent->IsAiming())
+	// Cannot attack while aiming or being pulled by grapple
+	if (GrappleComponent && (GrappleComponent->IsAiming() || GrappleComponent->IsGrappling()))
 	{
 		return;
 	}
@@ -710,6 +800,37 @@ void ASairanCharacter::UpdateHUD()
 	{
 		HUDWidget->UpdateHealth(GetHealthPercent());
 	}
+}
+
+void ASairanCharacter::HandleDeath()
+{
+	// Disable input momentarily
+	if (APlayerController* PC = Cast<APlayerController>(Controller))
+	{
+		DisableInput(PC);
+	}
+
+	// Respawn after delay
+	GetWorld()->GetTimerManager().SetTimer(RespawnTimerHandle, [this]()
+	{
+		// Restore full health
+		CurrentHealth = MaxHealth;
+		UpdateHUD();
+
+		// Respawn at last checkpoint
+		if (CheckpointComponent)
+		{
+			CheckpointComponent->RespawnAtLastCheckpoint();
+		}
+
+		// Re-enable input
+		if (APlayerController* PC = Cast<APlayerController>(Controller))
+		{
+			EnableInput(PC);
+		}
+
+		UE_LOG(LogTemp, Log, TEXT("Player: Respawned with full health at checkpoint"));
+	}, RespawnDelay, false);
 }
 
 

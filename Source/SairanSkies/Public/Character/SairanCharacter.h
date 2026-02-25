@@ -21,6 +21,7 @@ class USceneComponent;
 class UPlayerHUDWidget;
 class USoundBase;
 class UNiagaraSystem;
+class UWeaponLerpComponent;
 
 UENUM(BlueprintType)
 enum class ECharacterState : uint8
@@ -102,6 +103,9 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Survival")
 	UCheckpointComponent* CheckpointComponent;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Weapon")
+	UWeaponLerpComponent* WeaponLerpComponent;
+
 
 	// ========== WEAPON ATTACH POINTS ==========
 	/** Attachment point for weapon when held in hand */
@@ -119,6 +123,42 @@ public:
 	/** Attachment point for grapple hook in left hand */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Grapple|AttachPoints")
 	USceneComponent* GrappleHandAttachPoint;
+
+	// ========== WEAPON COMBO LERP POINTS ==========
+	/** Idle/rest position for the weapon when not attacking */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Weapon|ComboPoints")
+	USceneComponent* WeaponIdlePoint;
+
+	/** Light attack combo positions (5 points - weapon lerps between these) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Weapon|ComboPoints")
+	USceneComponent* LightAttackPoint1;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Weapon|ComboPoints")
+	USceneComponent* LightAttackPoint2;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Weapon|ComboPoints")
+	USceneComponent* LightAttackPoint3;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Weapon|ComboPoints")
+	USceneComponent* LightAttackPoint4;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Weapon|ComboPoints")
+	USceneComponent* LightAttackPoint5;
+
+	/** Heavy attack combo positions (2 points - up swing + down swing) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Weapon|ComboPoints")
+	USceneComponent* HeavyAttackPoint1;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Weapon|ComboPoints")
+	USceneComponent* HeavyAttackPoint2;
+
+	// ========== DEATH / RESPAWN ==========
+	/** Delay before respawning after death (seconds) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Stats")
+	float RespawnDelay = 1.5f;
+
+	/** Flag set by CloneComponent to suppress landing SFX after teleport */
+	bool bSuppressLandingSFX = false;
 
 	// ========== INPUT ACTIONS ==========
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
@@ -215,6 +255,26 @@ public:
 	/** Sound played when landing on ground */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Movement|SFX")
 	USoundBase* LandSound;
+
+	/** Sound played for walking footsteps */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Movement|SFX")
+	USoundBase* WalkFootstepSound;
+
+	/** Sound played for running footsteps */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Movement|SFX")
+	USoundBase* RunFootstepSound;
+
+	/** Interval between walking footstep sounds (seconds) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Movement|SFX")
+	float WalkFootstepInterval = 0.5f;
+
+	/** Interval between running footstep sounds (seconds) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Movement|SFX")
+	float RunFootstepInterval = 0.3f;
+
+	/** Minimum fall distance (units) to play landing sound/VFX. Prevents sound on teleport or small drops */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Movement|SFX")
+	float MinFallDistanceForLandSound = 150.0f;
 
 	/** Sound played when switching weapon to hand */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Weapon|SFX")
@@ -324,9 +384,17 @@ private:
 	void UpdateGravityScale();
 	void SpawnWeapon();
 	void ResetDash();
+	void HandleDeath();
 
 	FVector2D MovementInput;
 	float TargetCameraDistance;
 	FTimerHandle DashCooldownTimer;
+	FTimerHandle RespawnTimerHandle;
 	bool bIsDashing = false;
+
+	// Footstep timer
+	float FootstepTimer = 0.0f;
+
+	// Fall tracking for landing SFX
+	float LastGroundedZ = 0.0f;
 };

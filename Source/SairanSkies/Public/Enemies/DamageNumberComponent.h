@@ -1,4 +1,4 @@
-// SairanSkies - Damage Number Component (spawns individual floating damage numbers at hit location)
+// SairanSkies - Damage Number Component (UMG Widget-based floating damage numbers)
 
 #pragma once
 
@@ -6,12 +6,13 @@
 #include "Components/ActorComponent.h"
 #include "DamageNumberComponent.generated.h"
 
-class UTextRenderComponent;
+class UWidgetComponent;
+class UDamageNumberWidget;
 class UFont;
 class UMaterialInterface;
 
 /**
- * Stores data for a single floating damage number instance
+ * Stores data for a single floating damage number instance (Widget-based)
  */
 USTRUCT()
 struct FFloatingDamageNumber
@@ -19,17 +20,22 @@ struct FFloatingDamageNumber
 	GENERATED_BODY()
 
 	UPROPERTY()
-	UTextRenderComponent* TextComponent = nullptr;
+	UWidgetComponent* WidgetComponent = nullptr;
+
+	UPROPERTY()
+	UDamageNumberWidget* Widget = nullptr;
 
 	float Lifetime = 0.0f;
 	float MaxLifetime = 1.0f;
 	FVector InitialLocation = FVector::ZeroVector;
+	FLinearColor NumberColor = FLinearColor::White;
 };
 
 /**
- * Attach to enemies. Spawns individual damage numbers at hit locations.
- * Numbers float upward and fade out over 1 second.
- * Color goes green -> red based on remaining health percentage.
+ * Attach to enemies. Spawns individual damage numbers at hit locations
+ * using UMG Widgets for proper custom font support.
+ * Numbers float upward and fade out over their lifetime.
+ * Color goes green -> orange -> red based on remaining health percentage.
  * Shows X on death.
  */
 UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent))
@@ -62,26 +68,14 @@ public:
 
 	// ========== SETTINGS ==========
 
-	/** Font to use for damage numbers (leave null for default) */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "DamageNumbers|Settings")
-	UFont* DamageFont = nullptr;
-
 	/**
-	 * Optional: Material to use for the damage number text.
-	 * Use this when your custom Font does not render correctly (invisible text).
-	 *
-	 * HOW TO SET IT UP:
-	 * 1. In the Content Browser, right-click → Material
-	 * 2. Set Blend Mode = Translucent, Shading Model = Unlit
-	 * 3. Add a "TextureObjectParameter" named "Font" (or leave it for UE to fill)
-	 * 4. Add a "VectorParameter" named "Color" and plug it into Emissive Color
-	 * 5. Assign this material here AND in the Font asset's "Font Material" slot
-	 *
-	 * If left null, the font's own material will be used (works fine with default font,
-	 * but custom fonts may need this override to show color correctly).
+	 * Widget class for damage numbers.
+	 * Create a Widget Blueprint inheriting from UDamageNumberWidget
+	 * and add a TextBlock named "DamageText".
+	 * Set your custom font in the TextBlock's Font property in the WBP.
 	 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "DamageNumbers|Settings")
-	UMaterialInterface* FontMaterial = nullptr;
+	TSubclassOf<UDamageNumberWidget> DamageNumberWidgetClass;
 
 	/** How long each damage number lives (seconds) */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "DamageNumbers|Settings")
@@ -95,9 +89,13 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "DamageNumbers|Settings")
 	float HorizontalScatter = 20.0f;
 
-	/** Text size */
+	/** Font size for damage numbers */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "DamageNumbers|Settings")
-	float TextSize = 24.0f;
+	int32 TextFontSize = 24;
+
+	/** Draw size for the widget component */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "DamageNumbers|Settings")
+	FVector2D WidgetDrawSize = FVector2D(120.0f, 60.0f);
 
 	/** Offset above the enemy's head for death marker (in cm) */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "DamageNumbers|Settings")
@@ -105,15 +103,15 @@ public:
 
 	/** Color at full health */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "DamageNumbers|Colors")
-	FLinearColor FullHealthColor = FLinearColor(0.0f, 1.0f, 0.0f, 1.0f); // Green
+	FLinearColor FullHealthColor = FLinearColor(0.0f, 1.0f, 0.0f, 1.0f);
 
 	/** Color at mid health */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "DamageNumbers|Colors")
-	FLinearColor MidHealthColor = FLinearColor(1.0f, 0.65f, 0.0f, 1.0f); // Orange
+	FLinearColor MidHealthColor = FLinearColor(1.0f, 0.65f, 0.0f, 1.0f);
 
 	/** Color at zero health */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "DamageNumbers|Colors")
-	FLinearColor ZeroHealthColor = FLinearColor(1.0f, 0.0f, 0.0f, 1.0f); // Red
+	FLinearColor ZeroHealthColor = FLinearColor(1.0f, 0.0f, 0.0f, 1.0f);
 
 	/** Health % threshold: FullHealth -> MidHealth */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "DamageNumbers|Colors", meta = (ClampMin = "0.0", ClampMax = "1.0"))
@@ -127,6 +125,14 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "DamageNumbers|Colors")
 	FLinearColor DeathColor = FLinearColor(1.0f, 0.0f, 0.0f, 1.0f);
 
+	// ========== LEGACY (kept for backward compat, unused) ==========
+	UPROPERTY()
+	UFont* DamageFont = nullptr;
+	UPROPERTY()
+	UMaterialInterface* FontMaterial = nullptr;
+	UPROPERTY()
+	float TextSize = 24.0f;
+
 private:
 	FLinearColor GetColorForHealthPercent(float HealthPercent) const;
 	void CleanupNumber(int32 Index);
@@ -135,7 +141,7 @@ private:
 	TArray<FFloatingDamageNumber> ActiveNumbers;
 
 	UPROPERTY()
-	UTextRenderComponent* DeathTextComponent = nullptr;
+	UWidgetComponent* DeathWidgetComponent = nullptr;
 
 	bool bIsShowingDeath = false;
 	FTimerHandle DeathTimerHandle;

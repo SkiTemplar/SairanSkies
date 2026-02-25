@@ -216,6 +216,9 @@ protected:
 	/** Whether we have cached the original materials */
 	bool bMaterialsCached = false;
 
+	/** Timer handle for despawn after death */
+	FTimerHandle DespawnTimerHandle;
+
 public:
 
 	UFUNCTION(BlueprintPure, Category = "Enemy|Combat")
@@ -393,6 +396,12 @@ public:
 	static const FName BB_PatrolIndex;
 	static const FName BB_DistanceToTarget;
 	static const FName BB_CanAttack;
+
+	// ==================== DEATH / DESPAWN ====================
+
+	/** Delay before the enemy is destroyed after death (seconds) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|Death")
+	float DespawnDelay = 3.0f;
 
 	// ==================== STATIC ATTACKER TRACKING ====================
 protected:

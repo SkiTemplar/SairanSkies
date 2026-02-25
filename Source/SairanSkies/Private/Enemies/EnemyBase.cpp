@@ -534,6 +534,12 @@ void AEnemyBase::Die(AController* InstigatorController)
 		GetCharacterMovement()->DisableMovement();
 	}
 	SetActorEnableCollision(false);
+
+	// Despawn after delay
+	GetWorld()->GetTimerManager().SetTimer(DespawnTimerHandle, [this]()
+	{
+		Destroy();
+	}, DespawnDelay, false);
 }
 
 float AEnemyBase::GetDistanceToTarget() const

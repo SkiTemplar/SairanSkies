@@ -180,6 +180,9 @@ void UCloneComponent::TeleportToClone()
 	OwnerCharacter->SetActorLocation(CloneLocation, false, nullptr, ETeleportType::TeleportPhysics);
 	OwnerCharacter->SetActorRotation(CloneRotation);
 
+	// Suppress landing sound after teleport
+	OwnerCharacter->bSuppressLandingSFX = true;
+
 	// Reset velocity so player doesn't carry momentum
 	if (OwnerCharacter->GetCharacterMovement())
 	{

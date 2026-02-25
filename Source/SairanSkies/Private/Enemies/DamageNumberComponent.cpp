@@ -1,11 +1,9 @@
-// SairanSkies - Damage Number Component Implementation (individual floating numbers)
+// SairanSkies - Damage Number Component Implementation (UMG Widget-based)
 
 #include "Enemies/DamageNumberComponent.h"
-#include "Components/TextRenderComponent.h"
+#include "UI/DamageNumberWidget.h"
+#include "Components/WidgetComponent.h"
 #include "Engine/World.h"
-#include "Engine/Font.h"
-#include "Materials/MaterialInstanceDynamic.h"
-#include "Materials/MaterialInterface.h"
 #include "Kismet/GameplayStatics.h"
 
 UDamageNumberComponent::UDamageNumberComponent()
@@ -22,14 +20,11 @@ void UDamageNumberComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
-	APlayerCameraManager* CameraManager = UGameplayStatics::GetPlayerCameraManager(GetWorld(), 0);
-	FVector CameraLocation = CameraManager ? CameraManager->GetCameraLocation() : FVector::ZeroVector;
-
 	// Update all active floating numbers
 	for (int32 i = ActiveNumbers.Num() - 1; i >= 0; --i)
 	{
 		FFloatingDamageNumber& Num = ActiveNumbers[i];
-		if (!Num.TextComponent)
+		if (!Num.WidgetComponent)
 		{
 			ActiveNumbers.RemoveAt(i);
 			continue;
@@ -44,39 +39,23 @@ void UDamageNumberComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 		}
 
 		// Float upward
-		FVector CurrentLoc = Num.TextComponent->GetComponentLocation();
+		FVector CurrentLoc = Num.WidgetComponent->GetComponentLocation();
 		CurrentLoc.Z += FloatUpSpeed * DeltaTime;
-		Num.TextComponent->SetWorldLocation(CurrentLoc);
+		Num.WidgetComponent->SetWorldLocation(CurrentLoc);
 
-		// Face camera
-		if (CameraManager)
-		{
-			FVector Direction = CameraLocation - CurrentLoc;
-			Direction.Z = 0.0f;
-			if (!Direction.IsNearlyZero())
-			{
-				Num.TextComponent->SetWorldRotation(Direction.Rotation());
-			}
-		}
-
-		// Fade out (reduce opacity over lifetime)
+		// Fade out opacity over lifetime
 		float Alpha = 1.0f - (Num.Lifetime / Num.MaxLifetime);
-		// Scale the text size to simulate fade (TextRenderComponent doesn't support alpha easily)
-		float ScaledSize = TextSize * (0.5f + 0.5f * Alpha);
-		Num.TextComponent->SetWorldSize(ScaledSize);
-	}
-
-	// Death marker - face camera
-	if (bIsShowingDeath && DeathTextComponent && CameraManager)
-	{
-		FVector TextLoc = DeathTextComponent->GetComponentLocation();
-		FVector Direction = CameraLocation - TextLoc;
-		Direction.Z = 0.0f;
-		if (!Direction.IsNearlyZero())
+		if (Num.Widget)
 		{
-			DeathTextComponent->SetWorldRotation(Direction.Rotation());
+			// Update color with fading alpha
+			FLinearColor FadedColor = Num.NumberColor;
+			FadedColor.A = Alpha;
+			Num.Widget->SetDamageColor(FadedColor);
+			Num.Widget->SetRenderOpacity(Alpha);
 		}
 	}
+
+	// Death marker - nothing special needed, WidgetComponent in Screen space auto-faces camera
 }
 
 void UDamageNumberComponent::SpawnDamageNumber(float DamageAmount, float HealthPercent, const FVector& WorldLocation)
@@ -84,71 +63,52 @@ void UDamageNumberComponent::SpawnDamageNumber(float DamageAmount, float HealthP
 	AActor* Owner = GetOwner();
 	if (!Owner) return;
 
-	// Create a new TextRenderComponent at the hit location
-	UTextRenderComponent* NewText = NewObject<UTextRenderComponent>(Owner);
-	if (!NewText) return;
-
 	// Random scatter to avoid overlapping
 	FVector SpawnLoc = WorldLocation;
 	SpawnLoc.X += FMath::RandRange(-HorizontalScatter, HorizontalScatter);
 	SpawnLoc.Y += FMath::RandRange(-HorizontalScatter, HorizontalScatter);
 	SpawnLoc.Z += FMath::RandRange(0.0f, HorizontalScatter * 0.5f);
 
-	NewText->SetWorldLocation(SpawnLoc);
-	NewText->SetHorizontalAlignment(EHTA_Center);
-	NewText->SetVerticalAlignment(EVRTA_TextCenter);
-	NewText->SetWorldSize(TextSize);
-	NewText->SetAbsolute(true, true, true); // World space, not relative
-
-	// Apply custom font BEFORE RegisterComponent so the internal material is built with the correct font
-	if (DamageFont)
-	{
-		NewText->SetFont(DamageFont);
-	}
-
-	// If a manual FontMaterial override is set, apply it before registering so the render proxy
-	// is created with the correct material from the start (avoids the invisible-text problem with
-	// custom fonts whose internal material doesn't expose a Color parameter).
-	if (FontMaterial)
-	{
-		NewText->SetMaterial(0, FontMaterial);
-	}
-
-	// Set damage text BEFORE register so geometry is built correctly
-	int32 DisplayDamage = FMath::RoundToInt(DamageAmount);
-	NewText->SetText(FText::FromString(FString::Printf(TEXT("%d"), DisplayDamage)));
-
-	// Register the component so it gets a render proxy and material
-	NewText->RegisterComponent();
-
 	// Get the color for this damage number
 	FLinearColor DamageColor = GetColorForHealthPercent(FMath::Clamp(HealthPercent, 0.0f, 1.0f));
 
-	// Apply color.  We try both paths:
-	// 1. SetTextRenderColor — works with the default UE font material.
-	// 2. Dynamic material "Color" parameter — works with custom font materials that expose that param.
-	NewText->SetTextRenderColor(DamageColor.ToFColor(true));
+	// Create a WidgetComponent in Screen space (always faces camera)
+	UWidgetComponent* NewWidgetComp = NewObject<UWidgetComponent>(Owner);
+	if (!NewWidgetComp) return;
 
-	// Create a dynamic material instance so we can drive the "Color" vector parameter at runtime
-	// (needed for the fade-out effect in Tick and for custom font materials).
-	if (UMaterialInterface* BaseMat = NewText->GetMaterial(0))
+	NewWidgetComp->SetWidgetSpace(EWidgetSpace::Screen);
+	NewWidgetComp->SetDrawSize(WidgetDrawSize);
+	NewWidgetComp->SetAbsolute(true, true, true);
+	NewWidgetComp->SetWorldLocation(SpawnLoc);
+	NewWidgetComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	NewWidgetComp->SetPivot(FVector2D(0.5f, 0.5f));
+
+	// Set widget class if available
+	if (DamageNumberWidgetClass)
 	{
-		UMaterialInstanceDynamic* DynMat = UMaterialInstanceDynamic::Create(BaseMat, NewText);
-		if (DynMat)
-		{
-			DynMat->SetVectorParameterValue(FName("Color"), DamageColor);
-			DynMat->SetVectorParameterValue(FName("TextColor"), DamageColor);
-			DynMat->SetScalarParameterValue(FName("Opacity"), 1.0f);
-			NewText->SetMaterial(0, DynMat);
-		}
+		NewWidgetComp->SetWidgetClass(DamageNumberWidgetClass);
+	}
+
+	NewWidgetComp->RegisterComponent();
+
+	// Configure the widget
+	UDamageNumberWidget* DmgWidget = Cast<UDamageNumberWidget>(NewWidgetComp->GetUserWidgetObject());
+	if (DmgWidget)
+	{
+		int32 DisplayDamage = FMath::RoundToInt(DamageAmount);
+		DmgWidget->SetDamageText(FText::FromString(FString::Printf(TEXT("%d"), DisplayDamage)));
+		DmgWidget->SetDamageColor(DamageColor);
+		DmgWidget->SetFontSize(TextFontSize);
 	}
 
 	// Store in active list
 	FFloatingDamageNumber NewNumber;
-	NewNumber.TextComponent = NewText;
+	NewNumber.WidgetComponent = NewWidgetComp;
+	NewNumber.Widget = DmgWidget;
 	NewNumber.Lifetime = 0.0f;
 	NewNumber.MaxLifetime = NumberLifetime;
 	NewNumber.InitialLocation = SpawnLoc;
+	NewNumber.NumberColor = DamageColor;
 	ActiveNumbers.Add(NewNumber);
 }
 
@@ -159,35 +119,43 @@ void UDamageNumberComponent::ShowDeathMarker()
 
 	bIsShowingDeath = true;
 
-	// Create death text above enemy
-	if (!DeathTextComponent)
+	// Create death widget above enemy
+	if (!DeathWidgetComponent)
 	{
-		DeathTextComponent = NewObject<UTextRenderComponent>(Owner);
-		if (DeathTextComponent)
+		FVector DeathLoc = Owner->GetActorLocation() + FVector(0.0f, 0.0f, DeathMarkerHeightOffset);
+
+		DeathWidgetComponent = NewObject<UWidgetComponent>(Owner);
+		if (DeathWidgetComponent)
 		{
-			FVector DeathLoc = Owner->GetActorLocation() + FVector(0.0f, 0.0f, DeathMarkerHeightOffset);
-			DeathTextComponent->SetWorldLocation(DeathLoc);
-			DeathTextComponent->SetHorizontalAlignment(EHTA_Center);
-			DeathTextComponent->SetVerticalAlignment(EVRTA_TextCenter);
-			DeathTextComponent->SetWorldSize(TextSize * 1.5f);
-			DeathTextComponent->SetAbsolute(true, true, true);
-			DeathTextComponent->SetText(FText::FromString(TEXT("X")));
-			DeathTextComponent->SetTextRenderColor(DeathColor.ToFColor(true));
-			// Apply custom font to death marker as well
-			if (DamageFont)
+			DeathWidgetComponent->SetWidgetSpace(EWidgetSpace::Screen);
+			DeathWidgetComponent->SetDrawSize(WidgetDrawSize * 1.5f);
+			DeathWidgetComponent->SetAbsolute(true, true, true);
+			DeathWidgetComponent->SetWorldLocation(DeathLoc);
+			DeathWidgetComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+			if (DamageNumberWidgetClass)
 			{
-				DeathTextComponent->SetFont(DamageFont);
+				DeathWidgetComponent->SetWidgetClass(DamageNumberWidgetClass);
 			}
-			DeathTextComponent->RegisterComponent();
+
+			DeathWidgetComponent->RegisterComponent();
+
+			UDamageNumberWidget* DeathWidget = Cast<UDamageNumberWidget>(DeathWidgetComponent->GetUserWidgetObject());
+			if (DeathWidget)
+			{
+				DeathWidget->SetDamageText(FText::FromString(TEXT("X")));
+				DeathWidget->SetDamageColor(DeathColor);
+				DeathWidget->SetFontSize(TextFontSize * 1.5f);
+			}
 		}
 	}
 
 	// Auto-hide after a while
 	GetWorld()->GetTimerManager().SetTimer(DeathTimerHandle, [this]()
 	{
-		if (DeathTextComponent)
+		if (DeathWidgetComponent)
 		{
-			DeathTextComponent->SetVisibility(false);
+			DeathWidgetComponent->SetVisibility(false);
 		}
 		bIsShowingDeath = false;
 	}, 3.0f, false);
@@ -203,10 +171,10 @@ void UDamageNumberComponent::ResetCombo()
 	ActiveNumbers.Empty();
 
 	bIsShowingDeath = false;
-	if (DeathTextComponent)
+	if (DeathWidgetComponent)
 	{
-		DeathTextComponent->DestroyComponent();
-		DeathTextComponent = nullptr;
+		DeathWidgetComponent->DestroyComponent();
+		DeathWidgetComponent = nullptr;
 	}
 	GetWorld()->GetTimerManager().ClearTimer(DeathTimerHandle);
 }
@@ -215,9 +183,9 @@ void UDamageNumberComponent::CleanupNumber(int32 Index)
 {
 	if (ActiveNumbers.IsValidIndex(Index))
 	{
-		if (ActiveNumbers[Index].TextComponent)
+		if (ActiveNumbers[Index].WidgetComponent)
 		{
-			ActiveNumbers[Index].TextComponent->DestroyComponent();
+			ActiveNumbers[Index].WidgetComponent->DestroyComponent();
 		}
 		ActiveNumbers.RemoveAt(Index);
 	}

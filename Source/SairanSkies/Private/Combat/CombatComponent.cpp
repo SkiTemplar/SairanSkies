@@ -18,6 +18,7 @@
 #include "Sound/SoundBase.h"
 #include "Components/AudioComponent.h"
 #include "Enemies/EnemyBase.h"
+#include "Weapons/WeaponLerpComponent.h"
 
 UCombatComponent::UCombatComponent()
 {
@@ -115,6 +116,12 @@ void UCombatComponent::StartHeavyAttack()
 			OwnerCharacter->EquippedWeapon->GetRootComponent(),
 			NAME_None, FVector::ZeroVector, FRotator::ZeroRotator,
 			EAttachLocation::KeepRelativeOffset, false);
+	}
+
+	// Start weapon charge lerp (slow wind-up)
+	if (OwnerCharacter && OwnerCharacter->WeaponLerpComponent)
+	{
+		OwnerCharacter->WeaponLerpComponent->StartHeavyChargeLerp();
 	}
 }
 
