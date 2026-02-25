@@ -4,7 +4,6 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
-#include "Combat/CombatComponent.h"
 #include "WeaponLerpComponent.generated.h"
 
 class ASairanCharacter;
@@ -14,7 +13,7 @@ class USceneComponent;
 UENUM(BlueprintType)
 enum class EWeaponLerpState : uint8
 {
-	Idle,              // Weapon at rest position
+	Idle,              // Weapon at rest position (controlled by normal attach)
 	LightAttacking,    // Lerping between light attack points
 	HeavyAttacking,    // Quick snap to heavy points
 	HeavyCharging,     // Slow lerp during charge
@@ -57,7 +56,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "WeaponLerp")
 	void ReturnToIdle();
 
-	/** Force immediate return to idle (no lerp) */
+	/** Force immediate return to idle (no lerp) — call when sheathing/drawing weapon */
 	UFUNCTION(BlueprintCallable, Category = "WeaponLerp")
 	void ForceIdle();
 
@@ -65,11 +64,11 @@ public:
 
 	/** Speed of light attack lerps (higher = faster swing) */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "WeaponLerp|Settings")
-	float LightAttackLerpSpeed = 15.0f;
+	float LightAttackLerpSpeed = 12.0f;
 
 	/** Speed of heavy attack quick snap */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "WeaponLerp|Settings")
-	float HeavyAttackSnapSpeed = 20.0f;
+	float HeavyAttackSnapSpeed = 18.0f;
 
 	/** Speed of heavy charge wind-up */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "WeaponLerp|Settings")
@@ -98,7 +97,7 @@ protected:
 	AWeaponBase* Weapon;
 
 private:
-	// Scene components used as lerp targets (set from character's attach points)
+	// Scene components used as lerp targets (children of character root)
 	UPROPERTY()
 	USceneComponent* IdlePoint = nullptr;
 
@@ -108,25 +107,25 @@ private:
 	UPROPERTY()
 	TArray<USceneComponent*> HeavyAttackPoints;
 
-	// Current lerp target
-	FVector TargetLocation;
-	FRotator TargetRotation;
-	FVector StartLocation;
-	FRotator StartRotation;
-	float LerpAlpha = 0.0f;
+	// Lerp state — we store start and target as WORLD-SPACE offsets from character root,
+	// then each frame convert to weapon-parent-relative so it follows the character.
+	FVector StartRelLoc;    // Relative to character root at lerp start
+	FRotator StartRelRot;
+	FVector TargetRelLoc;   // Relative to character root at lerp target
+	FRotator TargetRelRot;
+	float LerpAlpha = 1.0f; // 1 = reached target
 	float CurrentLerpSpeed = 10.0f;
 
 	// Heavy attack phase tracking
-	int32 HeavyPhase = 0; // 0 = going to point1, 1 = going to point2
+	int32 HeavyPhase = 0;
 
 	// Inactivity timer
 	float TimeSinceLastAttack = 0.0f;
 	bool bIsActive = false;
 
 	void SetLerpTarget(USceneComponent* TargetPoint, float Speed);
+	void CaptureCurrentAsStart();
 	void UpdateLerp(float DeltaTime);
-	void ApplyWeaponTransform(const FVector& Location, const FRotator& Rotation);
+	void ApplyLerpedTransform(float Alpha);
 	bool HasReachedTarget() const;
 };
-
-

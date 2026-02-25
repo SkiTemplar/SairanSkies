@@ -681,6 +681,12 @@ void ASairanCharacter::DrawWeapon()
 		bIsWeaponDrawn = true;
 		EquippedWeapon->AttachToHand();
 
+		// Reset weapon lerp state so it starts from the hand attach position
+		if (WeaponLerpComponent)
+		{
+			WeaponLerpComponent->ForceIdle();
+		}
+
 		if (DrawWeaponSound)
 		{
 			UGameplayStatics::PlaySoundAtLocation(GetWorld(), DrawWeaponSound, GetActorLocation());
@@ -692,6 +698,12 @@ void ASairanCharacter::SheathWeapon()
 {
 	if (EquippedWeapon && bIsWeaponDrawn)
 	{
+		// Reset weapon lerp before sheathing
+		if (WeaponLerpComponent)
+		{
+			WeaponLerpComponent->ForceIdle();
+		}
+
 		bIsWeaponDrawn = false;
 		EquippedWeapon->AttachToBack();
 

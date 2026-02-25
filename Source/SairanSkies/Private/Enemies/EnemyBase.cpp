@@ -1068,12 +1068,12 @@ void AEnemyBase::SpawnHitEffect(FVector Location)
 {
 	if (VFXConfig.HitEffect)
 	{
-		// Spawn attached to the enemy so particles follow them when knocked back
+		// Spawn attached to the enemy at their center so particles follow them during knockback
 		UNiagaraFunctionLibrary::SpawnSystemAttached(
 			VFXConfig.HitEffect,
 			GetMesh(),  // Attach to mesh
 			NAME_None,  // No specific socket
-			GetMesh()->GetComponentTransform().InverseTransformPosition(Location),  // Convert to local space
+			FVector::ZeroVector,  // At mesh center (not hit point - looks better with knockback)
 			FRotator::ZeroRotator,
 			EAttachLocation::KeepRelativeOffset,
 			true  // Auto destroy
@@ -1096,14 +1096,14 @@ void AEnemyBase::TakeDamageAtLocation(float DamageAmount, AActor* DamageSource, 
 	// Spawn hit effect attached to enemy at the hit location
 	SpawnHitEffect(HitWorldLocation);
 
-	// Spawn blood VFX from enemy at hit location
+	// Spawn blood VFX from enemy center (not hit point - stays with enemy during knockback)
 	if (VFXConfig.BloodVFX)
 	{
 		UNiagaraFunctionLibrary::SpawnSystemAttached(
 			VFXConfig.BloodVFX,
 			GetMesh(),
 			NAME_None,
-			GetMesh()->GetComponentTransform().InverseTransformPosition(HitWorldLocation),
+			FVector::ZeroVector,  // At mesh center
 			FRotator::ZeroRotator,
 			EAttachLocation::KeepRelativeOffset,
 			true

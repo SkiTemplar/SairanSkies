@@ -205,6 +205,25 @@ void UCombatComponent::ExecuteAttack(EAttackType AttackType)
 	// Play attack SFX and VFX
 	PlayAttackFeedback(AttackType);
 
+	// Notify weapon lerp component to animate the weapon swing
+	if (OwnerCharacter && OwnerCharacter->WeaponLerpComponent)
+	{
+		switch (AttackType)
+		{
+		case EAttackType::Light:
+			OwnerCharacter->WeaponLerpComponent->StartLightAttackLerp(CurrentComboCount);
+			break;
+		case EAttackType::Heavy:
+			OwnerCharacter->WeaponLerpComponent->StartHeavyAttackLerp();
+			break;
+		case EAttackType::Charged:
+			OwnerCharacter->WeaponLerpComponent->ReleaseHeavyCharge();
+			break;
+		default:
+			break;
+		}
+	}
+
 	// Broadcast event
 	OnAttackPerformed.Broadcast(AttackType);
 
@@ -739,8 +758,20 @@ bool UCombatComponent::HandleIncomingDamage(float IncomingDamage, AActor* Attack
 		return false;
 	}
 
-	// Perfect parry (Sekiro deflect) - within parry window
-	if (bIsInParryWindow)
+	// Check if the attack comes from the front (180° arc)
+	// Attacks from behind always bypass parry/block
+	bool bAttackFromFront = true;
+	if (Attacker)
+	{
+		FVector ToAttacker = (Attacker->GetActorLocation() - OwnerCharacter->GetActorLocation()).GetSafeNormal();
+		FVector Forward = OwnerCharacter->GetActorForwardVector();
+		float DotProduct = FVector::DotProduct(Forward, ToAttacker);
+		// DotProduct > 0 means attacker is in front (within 180° arc)
+		bAttackFromFront = (DotProduct > 0.0f);
+	}
+
+	// Perfect parry (Sekiro deflect) - within parry window AND from front
+	if (bIsInParryWindow && bAttackFromFront)
 	{
 		OutDamageApplied = 0.0f;
 		PlayParryFeedback(true);
@@ -750,8 +781,8 @@ bool UCombatComponent::HandleIncomingDamage(float IncomingDamage, AActor* Attack
 		return true;
 	}
 
-	// Normal block - holding block but outside parry window
-	if (bIsHoldingBlock)
+	// Normal block - holding block but outside parry window AND from front
+	if (bIsHoldingBlock && bAttackFromFront)
 	{
 		// Partial damage - 30% gets through the block
 		OutDamageApplied = IncomingDamage * 0.3f;
@@ -762,8 +793,12 @@ bool UCombatComponent::HandleIncomingDamage(float IncomingDamage, AActor* Attack
 		return false;
 	}
 
-	// No block at all
+	// No block at all (or attack from behind)
 	OutDamageApplied = IncomingDamage;
+	if (!bAttackFromFront && (bIsHoldingBlock || bIsInParryWindow))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("BACKSTAB! Attack from behind bypassed block/parry"));
+	}
 	return false;
 }
 

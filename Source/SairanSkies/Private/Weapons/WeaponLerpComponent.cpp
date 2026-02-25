@@ -4,7 +4,6 @@
 #include "Character/SairanCharacter.h"
 #include "Weapons/WeaponBase.h"
 #include "Components/SceneComponent.h"
-#include "GameFramework/CharacterMovementComponent.h"
 
 UWeaponLerpComponent::UWeaponLerpComponent()
 {
@@ -33,26 +32,34 @@ void UWeaponLerpComponent::BeginPlay()
 	HeavyAttackPoints.Empty();
 	if (OwnerCharacter->HeavyAttackPoint1) HeavyAttackPoints.Add(OwnerCharacter->HeavyAttackPoint1);
 	if (OwnerCharacter->HeavyAttackPoint2) HeavyAttackPoints.Add(OwnerCharacter->HeavyAttackPoint2);
-
-	// Initialize target to idle
-	if (IdlePoint)
-	{
-		TargetLocation = IdlePoint->GetComponentLocation();
-		TargetRotation = IdlePoint->GetComponentRotation();
-	}
 }
 
 void UWeaponLerpComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
-	if (!OwnerCharacter || !Weapon) 
+	if (!OwnerCharacter) return;
+
+	// Try to get weapon reference if not available yet
+	if (!Weapon)
 	{
-		// Try to get weapon reference if it wasn't available at BeginPlay
-		if (OwnerCharacter && !Weapon)
+		Weapon = OwnerCharacter->EquippedWeapon;
+		if (!Weapon) return;
+	}
+
+	// Don't control weapon if not drawn / in hand
+	if (Weapon->CurrentState == EWeaponState::Sheathed)
+	{
+		if (bIsActive)
 		{
-			Weapon = OwnerCharacter->EquippedWeapon;
+			ForceIdle();
 		}
+		return;
+	}
+
+	// Don't override blocking stance
+	if (Weapon->IsInBlockingStance())
+	{
 		return;
 	}
 
@@ -66,37 +73,38 @@ void UWeaponLerpComponent::TickComponent(float DeltaTime, ELevelTick TickType, F
 		}
 	}
 
-	// Update lerp
+	// Advance the lerp
 	if (CurrentLerpState != EWeaponLerpState::Idle)
 	{
 		UpdateLerp(DeltaTime);
 
-		// Check phase transitions for heavy attack
-		if (CurrentLerpState == EWeaponLerpState::HeavyAttacking && HasReachedTarget())
+		// Phase transitions
+		if (HasReachedTarget())
 		{
-			if (HeavyPhase == 0 && HeavyAttackPoints.Num() > 1)
+			if (CurrentLerpState == EWeaponLerpState::HeavyAttacking && HeavyPhase == 0 && HeavyAttackPoints.Num() > 1)
 			{
-				// First point reached, go to second
+				// Reached point 1 (top), now swing down to point 2
 				HeavyPhase = 1;
 				SetLerpTarget(HeavyAttackPoints[1], HeavyAttackSnapSpeed);
 			}
-		}
-		else if (CurrentLerpState == EWeaponLerpState::HeavyCharging && HasReachedTarget())
-		{
-			if (HeavyPhase == 0 && HeavyAttackPoints.Num() > 1)
+			else if (CurrentLerpState == EWeaponLerpState::HeavyCharging && HeavyPhase == 0)
 			{
-				// Slow charge reached first point, wait for release
-				// Stay here until ReleaseHeavyCharge is called
+				// Charge reached top, hold there — wait for ReleaseHeavyCharge()
+			}
+			else if (CurrentLerpState == EWeaponLerpState::ReturningToIdle)
+			{
+				CurrentLerpState = EWeaponLerpState::Idle;
+				bIsActive = false;
+				CurrentLightComboIndex = 0;
 			}
 		}
-		else if (CurrentLerpState == EWeaponLerpState::ReturningToIdle && HasReachedTarget())
-		{
-			CurrentLerpState = EWeaponLerpState::Idle;
-			bIsActive = false;
-			CurrentLightComboIndex = 0;
-		}
+
+		// Apply the interpolated position every frame
+		ApplyLerpedTransform(LerpAlpha);
 	}
 }
+
+// ===================== PUBLIC API =====================
 
 void UWeaponLerpComponent::StartLightAttackLerp(int32 ComboIndex)
 {
@@ -105,8 +113,6 @@ void UWeaponLerpComponent::StartLightAttackLerp(int32 ComboIndex)
 	bIsActive = true;
 	TimeSinceLastAttack = 0.0f;
 	CurrentLerpState = EWeaponLerpState::LightAttacking;
-
-	// Wrap combo index
 	CurrentLightComboIndex = ComboIndex % LightAttackPoints.Num();
 
 	SetLerpTarget(LightAttackPoints[CurrentLightComboIndex], LightAttackLerpSpeed);
@@ -165,62 +171,68 @@ void UWeaponLerpComponent::ForceIdle()
 	CurrentLightComboIndex = 0;
 	TimeSinceLastAttack = 0.0f;
 	bIsActive = false;
+	LerpAlpha = 1.0f;
+}
 
-	if (IdlePoint && Weapon)
-	{
-		ApplyWeaponTransform(IdlePoint->GetComponentLocation(), IdlePoint->GetComponentRotation());
-	}
+// ===================== INTERNALS =====================
+
+void UWeaponLerpComponent::CaptureCurrentAsStart()
+{
+	if (!Weapon || !OwnerCharacter) return;
+
+	// Convert current weapon world transform to character-root-relative
+	FTransform CharRootTF = OwnerCharacter->GetRootComponent()->GetComponentTransform();
+	FTransform WeaponTF = Weapon->GetActorTransform();
+	FTransform RelativeTF = WeaponTF.GetRelativeTransform(CharRootTF);
+
+	StartRelLoc = RelativeTF.GetLocation();
+	StartRelRot = RelativeTF.Rotator();
 }
 
 void UWeaponLerpComponent::SetLerpTarget(USceneComponent* TargetPoint, float Speed)
 {
-	if (!TargetPoint || !Weapon) return;
+	if (!TargetPoint || !OwnerCharacter) return;
 
-	StartLocation = Weapon->GetActorLocation();
-	StartRotation = Weapon->GetActorRotation();
-	TargetLocation = TargetPoint->GetComponentLocation();
-	TargetRotation = TargetPoint->GetComponentRotation();
+	// Capture where the weapon is right now as the start of the lerp
+	CaptureCurrentAsStart();
+
+	// Target: the SceneComponent's relative transform IS relative to the character root
+	// (since they're SetupAttachment(RootComponent))
+	TargetRelLoc = TargetPoint->GetRelativeLocation();
+	TargetRelRot = TargetPoint->GetRelativeRotation();
+
 	CurrentLerpSpeed = Speed;
 	LerpAlpha = 0.0f;
 }
 
 void UWeaponLerpComponent::UpdateLerp(float DeltaTime)
 {
-	if (!Weapon) return;
+	if (LerpAlpha >= 1.0f) return;
 
 	LerpAlpha += DeltaTime * CurrentLerpSpeed;
 	LerpAlpha = FMath::Clamp(LerpAlpha, 0.0f, 1.0f);
-
-	// Smooth step for more natural feel
-	float SmoothedAlpha = FMath::SmoothStep(0.0f, 1.0f, LerpAlpha);
-
-	FVector NewLocation = FMath::Lerp(StartLocation, TargetLocation, SmoothedAlpha);
-	FRotator NewRotation = FMath::Lerp(StartRotation, TargetRotation, SmoothedAlpha);
-
-	ApplyWeaponTransform(NewLocation, NewRotation);
 }
 
-void UWeaponLerpComponent::ApplyWeaponTransform(const FVector& Location, const FRotator& Rotation)
+void UWeaponLerpComponent::ApplyLerpedTransform(float Alpha)
 {
-	if (!Weapon) return;
+	if (!Weapon || !OwnerCharacter) return;
 
-	// Only apply if weapon is drawn (in hand) and not in blocking stance
-	if (Weapon->CurrentState != EWeaponState::Drawn && Weapon->CurrentState != EWeaponState::Attacking)
-	{
-		return;
-	}
+	// Smooth step for nice ease-in/ease-out
+	float T = FMath::SmoothStep(0.0f, 1.0f, Alpha);
 
-	if (Weapon->IsInBlockingStance())
-	{
-		return;
-	}
+	// Interpolate in character-root-relative space
+	FVector LerpedRelLoc = FMath::Lerp(StartRelLoc, TargetRelLoc, T);
+	FQuat LerpedRelQuat = FQuat::Slerp(FQuat(StartRelRot), FQuat(TargetRelRot), T);
 
-	Weapon->SetActorLocation(Location);
-	Weapon->SetActorRotation(Rotation);
+	// Convert back to world space using the character root's current transform
+	FTransform CharRootTF = OwnerCharacter->GetRootComponent()->GetComponentTransform();
+	FTransform LerpedRelTF(LerpedRelQuat, LerpedRelLoc);
+	FTransform FinalWorldTF = LerpedRelTF * CharRootTF;
+
+	Weapon->SetActorLocationAndRotation(FinalWorldTF.GetLocation(), FinalWorldTF.GetRotation().Rotator());
 }
 
 bool UWeaponLerpComponent::HasReachedTarget() const
 {
 	return LerpAlpha >= 0.99f;
 }
-

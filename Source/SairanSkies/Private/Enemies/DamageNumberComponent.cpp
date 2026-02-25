@@ -77,7 +77,9 @@ void UDamageNumberComponent::SpawnDamageNumber(float DamageAmount, float HealthP
 	if (!NewWidgetComp) return;
 
 	NewWidgetComp->SetWidgetSpace(EWidgetSpace::Screen);
-	NewWidgetComp->SetDrawSize(WidgetDrawSize);
+	// Scale draw size proportionally to font size so text is never clipped
+	FVector2D ScaledDrawSize = FVector2D(TextFontSize * 6.0f, TextFontSize * 3.0f);
+	NewWidgetComp->SetDrawSize(ScaledDrawSize);
 	NewWidgetComp->SetAbsolute(true, true, true);
 	NewWidgetComp->SetWorldLocation(SpawnLoc);
 	NewWidgetComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
@@ -128,7 +130,8 @@ void UDamageNumberComponent::ShowDeathMarker()
 		if (DeathWidgetComponent)
 		{
 			DeathWidgetComponent->SetWidgetSpace(EWidgetSpace::Screen);
-			DeathWidgetComponent->SetDrawSize(WidgetDrawSize * 1.5f);
+			int32 DeathFontSize = FMath::RoundToInt(TextFontSize * 1.5f);
+			DeathWidgetComponent->SetDrawSize(FVector2D(DeathFontSize * 6.0f, DeathFontSize * 3.0f));
 			DeathWidgetComponent->SetAbsolute(true, true, true);
 			DeathWidgetComponent->SetWorldLocation(DeathLoc);
 			DeathWidgetComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
