@@ -22,6 +22,7 @@ class UPlayerHUDWidget;
 class USoundBase;
 class UNiagaraSystem;
 class UWeaponLerpComponent;
+class UInteractionComponent;
 
 UENUM(BlueprintType)
 enum class ECharacterState : uint8
@@ -105,6 +106,9 @@ public:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Weapon")
 	UWeaponLerpComponent* WeaponLerpComponent;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Interaction")
+	UInteractionComponent* InteractionComponent;
 
 
 	// ========== WEAPON ATTACH POINTS ==========
@@ -196,6 +200,9 @@ public:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	UInputAction* CloneAction;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	UInputAction* InteractAction;
 
 	// ========== MOVEMENT SETTINGS ==========
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Movement")
@@ -378,6 +385,7 @@ protected:
 	void GrappleStart(const FInputActionValue& Value);
 	void GrappleRelease(const FInputActionValue& Value);
 	void CloneActivate(const FInputActionValue& Value);
+	void Interact();
 
 private:
 	void UpdateCameraDistance(float DeltaTime);

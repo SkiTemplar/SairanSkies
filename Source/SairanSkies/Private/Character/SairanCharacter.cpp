@@ -16,6 +16,7 @@
 #include "Character/CheckpointComponent.h"
 #include "Weapons/WeaponBase.h"
 #include "Weapons/WeaponLerpComponent.h"
+#include "Interaction/InteractionComponent.h"
 #include "UI/PlayerHUDWidget.h"
 #include "Kismet/GameplayStatics.h"
 #include "NiagaraFunctionLibrary.h"
@@ -153,6 +154,9 @@ ASairanCharacter::ASairanCharacter()
 
 	// Weapon Lerp Component (handles combo position lerping)
 	WeaponLerpComponent = CreateDefaultSubobject<UWeaponLerpComponent>(TEXT("WeaponLerpComponent"));
+
+	// Interaction Component
+	InteractionComponent = CreateDefaultSubobject<UInteractionComponent>(TEXT("InteractionComponent"));
 
 	// Initial state
 	TargetCameraDistance = DefaultCameraDistance;
@@ -339,6 +343,9 @@ void ASairanCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 
 		// Clone/Teleport (Y/Triangle, D-pad Up, R on keyboard)
 		EnhancedInputComponent->BindAction(CloneAction, ETriggerEvent::Started, this, &ASairanCharacter::CloneActivate);
+
+		// Interact
+		EnhancedInputComponent->BindAction(InteractAction, ETriggerEvent::Started, this, &ASairanCharacter::Interact);
 	}
 }
 
@@ -804,6 +811,14 @@ void ASairanCharacter::CloneActivate(const FInputActionValue& Value)
 	}
 }
 
+void ASairanCharacter::Interact()
+{
+	if (InteractionComponent)
+	{
+		InteractionComponent->TryInteract();
+	}
+}
+
 // ========== HUD ==========
 
 void ASairanCharacter::UpdateHUD()
@@ -844,5 +859,9 @@ void ASairanCharacter::HandleDeath()
 		UE_LOG(LogTemp, Log, TEXT("Player: Respawned with full health at checkpoint"));
 	}, RespawnDelay, false);
 }
+
+
+
+
 
 
