@@ -36,6 +36,8 @@ void UInteractionComponent::TickComponent(float DeltaTime, ELevelTick TickType, 
 
 bool UInteractionComponent::TryInteract()
 {
+	UE_LOG(LogTemp, Warning, TEXT("TryInteract: Llamado"));
+
 	if (!bContinuousTrace)
 	{
 		UpdateFocusedActor();
@@ -43,29 +45,37 @@ bool UInteractionComponent::TryInteract()
 
 	if (!CurrentFocusedActor)
 	{
+		UE_LOG(LogTemp, Warning, TEXT("TryInteract: FALLO - CurrentFocusedActor es NULL"));
 		return false;
 	}
 
+	UE_LOG(LogTemp, Warning, TEXT("TryInteract: CurrentFocusedActor = %s"), *GetNameSafe(CurrentFocusedActor));
+
 	if (!CurrentFocusedActor->GetClass()->ImplementsInterface(UInteractableInterface::StaticClass()))
 	{
+		UE_LOG(LogTemp, Warning, TEXT("TryInteract: FALLO - No implementa interfaz"));
 		return false;
 	}
 
 	IInteractableInterface* Interactable = Cast<IInteractableInterface>(CurrentFocusedActor);
 	if (!Interactable)
 	{
+		UE_LOG(LogTemp, Warning, TEXT("TryInteract: FALLO - Cast a IInteractableInterface falló"));
 		return false;
 	}
 
 	if (!IInteractableInterface::Execute_CanInteract(CurrentFocusedActor, GetOwner()))
 	{
+		UE_LOG(LogTemp, Warning, TEXT("TryInteract: FALLO - CanInteract retornó false"));
 		OnInteractionPerformed.Broadcast(CurrentFocusedActor, false);
 		return false;
 	}
 
+	UE_LOG(LogTemp, Warning, TEXT("TryInteract: ÉXITO - Ejecutando Interact()"));
 	bool bSuccess = IInteractableInterface::Execute_Interact(CurrentFocusedActor, GetOwner());
 	OnInteractionPerformed.Broadcast(CurrentFocusedActor, bSuccess);
 
+	UE_LOG(LogTemp, Warning, TEXT("TryInteract: Interact retornó %s"), bSuccess ? TEXT("TRUE") : TEXT("FALSE"));
 	return bSuccess;
 }
 
@@ -135,6 +145,7 @@ bool UInteractionComponent::PerformInteractionTrace(AActor*& OutHitActor)
 	bool bHit;
 	if (InteractionSphereRadius > 0.0f)
 	{
+		// Sweep sphere trace - mejor para tercera persona con margen de error
 		bHit = World->SweepSingleByChannel(
 			HitResult,
 			TraceStart,
@@ -147,6 +158,7 @@ bool UInteractionComponent::PerformInteractionTrace(AActor*& OutHitActor)
 	}
 	else
 	{
+		// Line trace puro - sin margen de error
 		bHit = World->LineTraceSingleByChannel(
 			HitResult,
 			TraceStart,
@@ -162,9 +174,11 @@ bool UInteractionComponent::PerformInteractionTrace(AActor*& OutHitActor)
 		
 		if (InteractionSphereRadius > 0.0f)
 		{
+			// Dibujar la esfera de detección
 			DrawDebugSphere(World, bHit ? HitResult.Location : TraceEnd, InteractionSphereRadius, 12, DebugColor, false, 0.0f);
 		}
 		
+		// Dibujar la línea de traza
 		DrawDebugLine(World, TraceStart, bHit ? HitResult.Location : TraceEnd, DebugColor, false, 0.0f, 0, 2.0f);
 		
 		if (bHit)
@@ -175,75 +189,45 @@ bool UInteractionComponent::PerformInteractionTrace(AActor*& OutHitActor)
 
 	if (!bHit || !HitResult.GetActor())
 	{
-		UE_LOG(LogTemp, Warning, TEXT("Trace: No hit or no actor"));
 		return false;
 	}
 
 	AActor* HitActor = HitResult.GetActor();
-	UE_LOG(LogTemp, Warning, TEXT("Trace: Hit actor %s"), *GetNameSafe(HitActor));
 
 	if (!HitActor->GetClass()->ImplementsInterface(UInteractableInterface::StaticClass()))
 	{
-		UE_LOG(LogTemp, Warning, TEXT("Trace: %s does NOT implement InteractableInterface"), *GetNameSafe(HitActor));
 		return false;
 	}
 
-	UE_LOG(LogTemp, Warning, TEXT("Trace: %s implements InteractableInterface"), *GetNameSafe(HitActor));
-
 	float CustomDistance = IInteractableInterface::Execute_GetInteractionDistance(HitActor);
-	if (CustomDistance > 0.0f)
-	{
-		float Distance = FVector::Dist(TraceStart, HitResult.Location);
-		UE_LOG(LogTemp, Warning, TEXT("Trace: %s custom distance check: distance=%.1f, max=%.1f"), *GetNameSafe(HitActor), Distance, CustomDistance);
-		if (Distance > CustomDistance)
-		{
-			UE_LOG(LogTemp, Warning, TEXT("Trace: %s REJECTED - distance too far"), *GetNameSafe(HitActor));
-			return false;
-		}
-	}
+	float ActualDistance = FVector::Dist(TraceStart, HitResult.Location);
+	float MaxAllowedDistance = (CustomDistance > 0.0f) ? CustomDistance : InteractionDistance;
 
-	UE_LOG(LogTemp, Warning, TEXT("Trace: SUCCESS - %s can be interacted"), *GetNameSafe(HitActor));
+	if (ActualDistance > MaxAllowedDistance)
+	{
+		return false;
+	}
+	
 	OutHitActor = HitActor;
 	return true;
 }
 
 void UInteractionComponent::SetFocusedActor(AActor* NewFocusedActor)
 {
-	// Si el nuevo actor no puede ser interactuado, tratarlo como null
-	if (NewFocusedActor && NewFocusedActor->GetClass()->ImplementsInterface(UInteractableInterface::StaticClass()))
+	// Validar que el nuevo actor puede ser interactuado
+	if (NewFocusedActor)
 	{
-		if (!IInteractableInterface::Execute_CanInteract(NewFocusedActor, GetOwner()))
+		if (!NewFocusedActor->GetClass()->ImplementsInterface(UInteractableInterface::StaticClass()))
 		{
-			// El actor no puede ser interactuado (ej: ya fue usado), no darle foco
+			NewFocusedActor = nullptr;
+		}
+		else if (!IInteractableInterface::Execute_CanInteract(NewFocusedActor, GetOwner()))
+		{
 			NewFocusedActor = nullptr;
 		}
 	}
 
-	// Si el nuevo actor es null pero aún tenemos un actor en foco, aplicar debounce
-	if (NewFocusedActor == nullptr && CurrentFocusedActor != nullptr)
-	{
-		// El raycast falló. Esperamos FocusLossDebouncTime segundos antes de perder foco
-		if (!bWaitingForFocusLoss)
-		{
-			bWaitingForFocusLoss = true;
-			FocusLossTimer = 0.0f;
-			return; // No perdemos foco todavía
-		}
-
-		// Contar tiempo
-		FocusLossTimer += GetWorld()->DeltaTimeSeconds;
-		if (FocusLossTimer < FocusLossDebouncTime)
-		{
-			return; // Aún en período de debounce, mantener foco
-		}
-	}
-	else
-	{
-		// Raycast detectó algo o el foco cambió, resetear debounce
-		bWaitingForFocusLoss = false;
-		FocusLossTimer = 0.0f;
-	}
-
+	// Si no cambió, no hacer nada
 	if (NewFocusedActor == CurrentFocusedActor)
 	{
 		return;
@@ -254,14 +238,16 @@ void UInteractionComponent::SetFocusedActor(AActor* NewFocusedActor)
 	// Perder foco del actor anterior
 	if (PreviousFocusedActor && PreviousFocusedActor->GetClass()->ImplementsInterface(UInteractableInterface::StaticClass()))
 	{
+		UE_LOG(LogTemp, Warning, TEXT("LOST FOCUS: %s"), *GetNameSafe(PreviousFocusedActor));
 		IInteractableInterface::Execute_OnFocusLost(PreviousFocusedActor);
 	}
 
 	CurrentFocusedActor = NewFocusedActor;
 
-	// Ganar foco en el nuevo actor (solo si no es null)
+	// Ganar foco en el nuevo actor
 	if (CurrentFocusedActor && CurrentFocusedActor->GetClass()->ImplementsInterface(UInteractableInterface::StaticClass()))
 	{
+		UE_LOG(LogTemp, Warning, TEXT("GAINED FOCUS: %s"), *GetNameSafe(CurrentFocusedActor));
 		IInteractableInterface::Execute_OnFocusGained(CurrentFocusedActor);
 	}
 
@@ -279,15 +265,29 @@ void UInteractionComponent::GetTraceStartAndDirection(FVector& OutStart, FVector
 
 	if (AActor* Owner = GetOwner())
 	{
-		OutStart = Owner->GetActorLocation();
-		OutDirection = Owner->GetActorForwardVector();
+		UCameraComponent* FoundCamera = Owner->FindComponentByClass<UCameraComponent>();
+		if (FoundCamera)
+		{
+			OutStart = FoundCamera->GetComponentLocation();
+			OutDirection = FoundCamera->GetForwardVector();
+			return;
+		}
 
 		if (APawn* OwnerPawn = Cast<APawn>(Owner))
 		{
 			if (AController* Controller = OwnerPawn->GetController())
 			{
+				OutStart = Owner->GetActorLocation();
 				OutDirection = Controller->GetControlRotation().Vector();
+				return;
 			}
 		}
+
+		OutStart = Owner->GetActorLocation();
+		OutDirection = Owner->GetActorForwardVector();
+		return;
 	}
+
+	OutStart = FVector::ZeroVector;
+	OutDirection = FVector::ForwardVector;
 }

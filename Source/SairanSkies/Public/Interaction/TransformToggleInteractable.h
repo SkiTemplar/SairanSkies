@@ -173,7 +173,7 @@ public:
 
 	/** Si es true, bloquea interacciones mientras hace la transición */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "TransformToggle|Transition")
-	bool bBlockInteractionDuringTransition = true;
+	bool bBlockInteractionDuringTransition = false;
 
 	// ==================== DEBUG ====================
 

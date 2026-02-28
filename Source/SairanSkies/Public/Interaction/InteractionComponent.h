@@ -53,16 +53,18 @@ public:
 	
 	/**
 	 * Distancia máxima a la que se pueden detectar objetos interactuables
+	 * En tercera persona, la cámara está detrás del personaje, así que esto es más importante
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interaction|Settings", meta = (ClampMin = "50.0", ClampMax = "5000.0"))
-	float InteractionDistance = 300.0f;
+	float InteractionDistance = 500.0f;
 
 	/**
 	 * Radio de la esfera usada para detectar interactuables (0 = line trace puro)
-	 * Recomendado: 25-50 para objetos pequeños
+	 * En tercera persona se recomienda un radio mayor para más tolerancia
+	 * Recomendado: 50-100 para objetos pequeños en tercera persona
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interaction|Settings", meta = (ClampMin = "0.0", ClampMax = "100.0"))
-	float InteractionSphereRadius = 30.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interaction|Settings", meta = (ClampMin = "0.0", ClampMax = "200.0"))
+	float InteractionSphereRadius = 80.0f;
 
 	/**
 	 * Canal de traza usado para detectar interactuables
@@ -83,13 +85,6 @@ public:
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interaction|Settings")
 	bool bContinuousTrace = true;
-
-	/**
-	 * Tiempo (segundos) que espera antes de perder foco si el raycast falla
-	 * Útil para evitar que objetos pequeños parpadeen de foco constantemente
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interaction|Settings", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-	float FocusLossDebouncTime = 0.2f;
 
 	// ==================== DELEGADOS / EVENTOS ====================
 
@@ -185,10 +180,4 @@ private:
 	 */
 	UPROPERTY()
 	UCameraComponent* CachedCamera = nullptr;
-
-	/**
-	 * Sistema de debounce para evitar que el foco parpadee
-	 */
-	bool bWaitingForFocusLoss = false;
-	float FocusLossTimer = 0.0f;
 };

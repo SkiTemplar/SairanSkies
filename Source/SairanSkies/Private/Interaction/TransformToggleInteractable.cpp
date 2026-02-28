@@ -11,21 +11,25 @@ ATransformToggleInteractable::ATransformToggleInteractable()
 	PrimaryActorTick.bCanEverTick = true;
 	PrimaryActorTick.bStartWithTickEnabled = false;
 
-	// Crear componente raíz
+	// Crear componente raíz (reemplazar el del padre)
 	LeverRoot = CreateDefaultSubobject<USceneComponent>(TEXT("LeverRoot"));
 	RootComponent = LeverRoot;
 
-	// Crear mesh de la BASE (estática)
+	// Crear mesh de la BASE (estática) - ESTA ES EL MESH PRINCIPAL DE INTERACCIÓN
 	BaseMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("BaseMesh"));
 	BaseMesh->SetupAttachment(LeverRoot);
-	BaseMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+	BaseMesh->SetCollisionEnabled(ECollisionEnabled::QueryOnly);  // Solo query, sin physics
 	BaseMesh->SetCollisionResponseToAllChannels(ECR_Block);
+	BaseMesh->SetCollisionObjectType(ECC_WorldStatic);
 
-	// Crear mesh de la PALANCA (que se transforma)
+	// Hacer que BaseMesh sea el MeshComponent de la clase base para la interfaz
+	MeshComponent = BaseMesh;
+
+	// Crear mesh de la PALANCA (que se transforma) - SIN COLLISION PARA RAYCAST
 	LeverMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("LeverMesh"));
 	LeverMesh->SetupAttachment(LeverRoot);
-	LeverMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-	LeverMesh->SetCollisionResponseToAllChannels(ECR_Block);
+	LeverMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);  // Sin collision
+	LeverMesh->SetGenerateOverlapEvents(false);
 
 	// Configuración por defecto
 	InteractionText = FText::FromString("Press E to Activate My Friend");
@@ -99,16 +103,16 @@ void ATransformToggleInteractable::Tick(float DeltaTime)
 
 bool ATransformToggleInteractable::Interact_Implementation(AActor* InteractInstigator)
 {
+	UE_LOG(LogTemp, Warning, TEXT("Palanca Interact: Llamado en %s"), *GetName());
+
 	if (!bCanBeInteracted)
 	{
+		UE_LOG(LogTemp, Warning, TEXT("Palanca Interact: FALLO - bCanBeInteracted es FALSE"));
 		return false;
 	}
 
-	// Bloquear si está en transición
-	if (bBlockInteractionDuringTransition && IsTransitioning())
-	{
-		return false;
-	}
+	UE_LOG(LogTemp, Warning, TEXT("Palanca Interact: ÉXITO - Ejecutando toggle (bIsTransformed=%s)"), 
+		bIsTransformed ? TEXT("TRUE") : TEXT("FALSE"));
 
 	// Toggle el estado
 	bool bNewState = !bIsTransformed;
@@ -146,6 +150,9 @@ bool ATransformToggleInteractable::Interact_Implementation(AActor* InteractInsti
 
 	OnTransformStartedBP(bNewState);
 	OnInteracted(InteractInstigator);
+	
+	UE_LOG(LogTemp, Warning, TEXT("Palanca Interact: Toggle completado - nuevo estado=%s"), 
+		bIsTransformed ? TEXT("TRANSFORMADO") : TEXT("ORIGINAL"));
 	
 	return true;
 }
