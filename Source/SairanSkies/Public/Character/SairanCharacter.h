@@ -288,6 +288,11 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Movement|SFX")
 	float MinFallDistanceForLandSound = 150.0f;
 
+	/** Horizontal knockback force applied to the player when hit (very small — recoverable). 0 = disabled. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Movement",
+		meta=(ClampMin="0.0", ClampMax="800.0"))
+	float PlayerHitKnockbackForce = 220.0f;
+
 	/** Sound played when switching weapon to hand */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Weapon|SFX")
 	USoundBase* DrawWeaponSound;

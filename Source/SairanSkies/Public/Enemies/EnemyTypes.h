@@ -70,7 +70,7 @@ struct FEnemyCombatConfig
 
 	/** Probabilidad de quedarse en el inner circle tras atacar (0=siempre sale, 1=siempre se queda) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "TwoCircles", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-	float ChanceToStayInnerAfterAttack = 0.25f;
+	float ChanceToStayInnerAfterAttack = 0.55f;
 
 	/** Delay mínimo antes de reaccionar cuando el jugador se aleja */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "TwoCircles")
@@ -92,16 +92,16 @@ struct FEnemyCombatConfig
 	float BaseDamage = 10.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
-	float AttackCooldown = 2.0f;
+	float AttackCooldown = 0.8f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
 	float AllyDetectionRadius = 1500.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
-	int32 MaxSimultaneousAttackers = 2;
+	int32 MaxSimultaneousAttackers = 3;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
-	int32 MinAlliesForAggression = 2;
+	int32 MinAlliesForAggression = 1;
 };
 
 /**

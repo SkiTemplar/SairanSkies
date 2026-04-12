@@ -35,9 +35,13 @@ public:
 	// ========== CONFIGURATION ==========
 
 	/** Max enemies allowed in the inner circle (attacking) at the same time */
-	int32 MaxInnerCircleEnemies = 2;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GroupCombat|Config",
+		meta = (ClampMin = "1", ClampMax = "8"))
+	int32 MaxInnerCircleEnemies = 3;
 
-	/** Cooldown before an enemy can re-enter the inner circle after retreating */
+	/** Cooldown before an enemy can re-enter the inner circle after retreating (seconds) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GroupCombat|Config",
+		meta = (ClampMin = "0.0", ClampMax = "10.0"))
 	float InnerCircleCooldown = 2.0f;
 
 	// ========== REGISTRATION ==========

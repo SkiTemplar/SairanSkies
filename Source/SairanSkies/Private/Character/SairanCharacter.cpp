@@ -29,7 +29,8 @@ ASairanCharacter::ASairanCharacter()
 	PrimaryActorTick.bCanEverTick = true;
 
 	// Capsule setup
-	GetCapsuleComponent()->InitCapsuleSize(42.f, 75.0f);
+	// Sphere hitbox: radius == half-height → perfect sphere at 1.5m total height (150 units)
+	GetCapsuleComponent()->InitCapsuleSize(75.0f, 75.0f);
 
 	// Don't rotate character to camera
 	bUseControllerRotationPitch = false;
@@ -45,6 +46,9 @@ ASairanCharacter::ASairanCharacter()
 	GetCharacterMovement()->MinAnalogWalkSpeed = 20.f;
 	GetCharacterMovement()->BrakingDecelerationWalking = 2000.f;
 	GetCharacterMovement()->GravityScale = NormalGravityScale;
+	// Sphere hitbox is 75 radius — reduce step-up height so the capsule top doesn't
+	// register a nearby platform floor as a walkable step and teleport the player up.
+	GetCharacterMovement()->MaxStepHeight = 25.0f;
 
 
 	// ========== WEAPON ATTACH POINTS ==========
@@ -236,6 +240,16 @@ float ASairanCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const
 
 	// Apply remaining damage
 	CurrentHealth = FMath::Clamp(CurrentHealth - DamageApplied, 0.0f, MaxHealth);
+
+	// Small knockback away from attacker (very light — player can recover immediately)
+	if (DamageApplied > 0.0f && DamageCauser && PlayerHitKnockbackForce > 0.0f)
+	{
+		FVector KnockDir = (GetActorLocation() - DamageCauser->GetActorLocation()).GetSafeNormal2D();
+		if (!KnockDir.IsNearlyZero())
+		{
+			LaunchCharacter(KnockDir * PlayerHitKnockbackForce, true, false);
+		}
+	}
 
 	// Update HUD
 	UpdateHUD();

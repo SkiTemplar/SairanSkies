@@ -51,16 +51,16 @@ public:
 protected:
 	// ── Timing ──
 	UPROPERTY(EditAnywhere, Category = "Attack|Timing", meta = (ClampMin = "0.05"))
-	float WindUpDuration = 0.35f;
+	float WindUpDuration = 0.2f;
 
 	UPROPERTY(EditAnywhere, Category = "Attack|Timing", meta = (ClampMin = "0.05"))
 	float StrikeDuration = 0.25f;
 
 	UPROPERTY(EditAnywhere, Category = "Attack|Timing", meta = (ClampMin = "0.05"))
-	float RecoveryDuration = 0.5f;
+	float RecoveryDuration = 0.3f;
 
 	UPROPERTY(EditAnywhere, Category = "Attack|Timing", meta = (ClampMin = "0.1"))
-	float ComboGapDuration = 0.35f;
+	float ComboGapDuration = 0.2f;
 
 	/** Max time allowed to approach attack position before aborting */
 	UPROPERTY(EditAnywhere, Category = "Attack|Timing", meta = (ClampMin = "1.0"))

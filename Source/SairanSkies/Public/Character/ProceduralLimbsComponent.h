@@ -63,10 +63,11 @@ public:
 
 	// ========== SIZES ==========
 
-	/** World-space radius of the body sphere (UE sphere mesh = radius 50 at scale 1). */
+	/** World-space radius of the body sphere (UE sphere mesh = radius 50 at scale 1).
+	 *  Visually matches the sphere hitbox (capsule radius 75). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Limbs|Size",
 		meta=(ClampMin="5.0", ClampMax="150.0"))
-	float BodyRadius = 35.0f;
+	float BodyRadius = 55.0f;
 
 	/** World-space radius of each hand sphere. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Limbs|Size",
@@ -85,9 +86,10 @@ public:
 
 	// ========== BODY ==========
 
-	/** Height offset of body sphere above the character capsule origin. */
+	/** Vertical offset of the body sphere from the capsule centre.
+	 *  0 = perfectly centred on the hitbox sphere (recommended when BodyRadius ≈ capsule radius). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Limbs|Body")
-	float BodyZOffset = 35.0f;
+	float BodyZOffset = 0.0f;
 
 	/** Amplitude of the body vertical bob when running (units). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Limbs|Body")
@@ -95,13 +97,15 @@ public:
 
 	// ========== HAND OFFSETS (character-local, used when unarmed) ==========
 
-	/** Right hand rest offset relative to character root (unarmed). */
+	/** Right hand rest offset relative to character root (unarmed).
+	 *  Distance from origin must exceed BodyRadius so the hand is visible outside the body sphere.
+	 *  (25,70,0) → dist ≈ 74 > radius 55 = clearly outside. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Limbs|HandOffset")
-	FVector RightHandRestOffset = FVector(18.0f, 30.0f, 8.0f);
+	FVector RightHandRestOffset = FVector(25.0f, 70.0f, 0.0f);
 
 	/** Left hand rest offset relative to character root (unarmed). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Limbs|HandOffset")
-	FVector LeftHandRestOffset = FVector(18.0f, -30.0f, 8.0f);
+	FVector LeftHandRestOffset = FVector(25.0f, -70.0f, 0.0f);
 
 	/** Idle hand swing amplitude (units). Hands sway slightly when unarmed and walking. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Limbs|HandOffset")
@@ -113,13 +117,15 @@ public:
 
 	// ========== FOOT OFFSETS (character-local) ==========
 
-	/** Right foot rest offset relative to character root. */
+	/** Right foot rest offset relative to character root.
+	 *  Actor origin is HalfHeight (75) above floor, so Z=-68 puts the foot at 7u above floor
+	 *  and clearly below the body sphere bottom (sphere bottom = -55 from origin). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Limbs|FootOffset")
-	FVector RightFootRestOffset = FVector(0.0f, 14.0f, -60.0f);
+	FVector RightFootRestOffset = FVector(5.0f, 20.0f, -68.0f);
 
 	/** Left foot rest offset relative to character root. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Limbs|FootOffset")
-	FVector LeftFootRestOffset = FVector(0.0f, -14.0f, -60.0f);
+	FVector LeftFootRestOffset = FVector(5.0f, -20.0f, -68.0f);
 
 	// ========== GAIT ==========
 
@@ -131,7 +137,7 @@ public:
 	/** Gait frequency (Hz) at maximum run speed. Scales linearly with actual speed. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Limbs|Gait",
 		meta=(ClampMin="0.1"))
-	float GaitFrequency = 3.2f;
+	float GaitFrequency = 5.5f;
 
 	/** Max forward/back tilt (degrees) of the cone when swinging. Makes gait look more natural. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Limbs|Gait",
