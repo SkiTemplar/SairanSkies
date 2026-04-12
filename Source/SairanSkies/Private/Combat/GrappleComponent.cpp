@@ -213,9 +213,14 @@ void UGrappleComponent::FireGrapple()
 	GrappleStartPoint = OwnerCharacter->GetActorLocation();
 	GrappleTargetPoint = AimTargetLocation;
 	InitialDistanceToTarget = FVector::Dist(GrappleStartPoint, GrappleTargetPoint);
-	
+
 	// Calculate midpoint (where we'll release) - it's the horizontal position of the target
 	GrappleMidpoint = GrappleTargetPoint;
+
+	// Build the release plane: perpendicular to the grapple direction, centred on the target.
+	// Normal = unit vector from player to target at fire time.
+	// Player is released as soon as they cross this plane (reach the target's "altitude layer").
+	GrapplePlaneNormal = (GrappleTargetPoint - GrappleStartPoint).GetSafeNormal();
 
 	SetState(EGrappleState::Pulling);
 
@@ -619,21 +624,25 @@ FVector UGrappleComponent::CalculateGrappleDirection() const
 
 bool UGrappleComponent::HasPassedMidpoint() const
 {
-	if (!OwnerCharacter)
+	if (!OwnerCharacter || GrapplePlaneNormal.IsNearlyZero())
 	{
 		return true;
 	}
 
 	FVector CurrentLocation = OwnerCharacter->GetActorLocation();
-	
-	// Calculate horizontal distance to the target's vertical line
-	// We release when we're close to being directly under/over the grapple point
-	FVector2D CurrentXY(CurrentLocation.X, CurrentLocation.Y);
-	FVector2D TargetXY(GrappleTargetPoint.X, GrappleTargetPoint.Y);
-	
-	float HorizontalDistance = FVector2D::Distance(CurrentXY, TargetXY);
-	
-	return HorizontalDistance <= MidpointReleaseDistance;
+
+	// Release-plane check: the plane is perpendicular to the launch direction and
+	// passes through GrappleTargetPoint (normal = GrapplePlaneNormal).
+	//
+	// Signed distance of the player from the plane:
+	//   Negative  → player is still on the approach side (hasn't crossed yet)
+	//   Zero / +  → player has crossed the plane → release
+	//
+	// We trigger early by MidpointReleaseDistance units so the grapple ends cleanly
+	// before the player collides with the grapple surface.
+	float SignedDist = FVector::DotProduct(CurrentLocation - GrappleTargetPoint, GrapplePlaneNormal);
+
+	return SignedDist >= -MidpointReleaseDistance;
 }
 
 void UGrappleComponent::SetState(EGrappleState NewState)
@@ -649,6 +658,7 @@ void UGrappleComponent::ResetGrapple()
 	AimTargetLocation = FVector::ZeroVector;
 	GrappleStartPoint = FVector::ZeroVector;
 	GrappleMidpoint = FVector::ZeroVector;
+	GrapplePlaneNormal = FVector::ZeroVector;
 	InitialDistanceToTarget = 0.0f;
 	bIsDampeningVelocity = false;
 	DampeningTimeRemaining = 0.0f;

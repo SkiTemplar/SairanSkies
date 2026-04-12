@@ -191,9 +191,9 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|HitFeedback")
 	float HitstopDuration = 0.05f;
 
-	/** Strength of camera shake on hit (0 = none) */
+	/** Strength of camera shake on hit (0 = none). Kept low to avoid motion sickness. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|HitFeedback")
-	float CameraShakeIntensity = 1.0f;
+	float CameraShakeIntensity = 0.25f;
 
 	/** Camera shake class to play on hit */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|HitFeedback")

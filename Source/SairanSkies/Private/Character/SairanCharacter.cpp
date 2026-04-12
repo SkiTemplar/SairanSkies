@@ -17,6 +17,7 @@
 #include "Weapons/WeaponBase.h"
 #include "Weapons/WeaponLerpComponent.h"
 #include "Interaction/InteractionComponent.h"
+#include "Character/ProceduralLimbsComponent.h"
 #include "UI/PlayerHUDWidget.h"
 #include "Kismet/GameplayStatics.h"
 #include "NiagaraFunctionLibrary.h"
@@ -157,6 +158,9 @@ ASairanCharacter::ASairanCharacter()
 
 	// Interaction Component
 	InteractionComponent = CreateDefaultSubobject<UInteractionComponent>(TEXT("InteractionComponent"));
+
+	// Procedural Limbs (Rayman-style body: sphere torso + spring hands/feet)
+	ProceduralLimbs = CreateDefaultSubobject<UProceduralLimbsComponent>(TEXT("ProceduralLimbs"));
 
 	// Initial state
 	TargetCameraDistance = DefaultCameraDistance;

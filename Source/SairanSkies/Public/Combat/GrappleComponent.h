@@ -300,6 +300,12 @@ private:
 	float InitialDistanceToTarget;
 	bool bCameraTransitioning = false;
 
+	/** Unit vector from GrappleStartPoint to GrappleTargetPoint.
+	 *  Defines the normal of the release plane: the plane perpendicular to the
+	 *  grapple direction that passes through GrappleTargetPoint.
+	 *  When the player crosses this plane they are released from the grapple. */
+	FVector GrapplePlaneNormal = FVector::ZeroVector;
+
 	// Post-grapple velocity dampening state
 	bool bIsDampeningVelocity = false;
 	float DampeningTimeRemaining = 0.0f;

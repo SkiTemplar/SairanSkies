@@ -23,6 +23,7 @@ class USoundBase;
 class UNiagaraSystem;
 class UWeaponLerpComponent;
 class UInteractionComponent;
+class UProceduralLimbsComponent;
 
 UENUM(BlueprintType)
 enum class ECharacterState : uint8
@@ -109,6 +110,10 @@ public:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Interaction")
 	UInteractionComponent* InteractionComponent;
+
+	/** Rayman-style procedural limbs: sphere body + spring-simulated hands and feet. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Visual")
+	UProceduralLimbsComponent* ProceduralLimbs;
 
 
 	// ========== WEAPON ATTACH POINTS ==========
