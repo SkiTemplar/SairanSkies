@@ -34,3 +34,28 @@ void UPlayerHUDWidget::UpdateHealth(float HealthPercent)
 	}
 }
 
+void UPlayerHUDWidget::UpdateUltimate(float UltimatePercent)
+{
+	if (!UltimateBar) return;
+
+	const float Pct = FMath::Clamp(UltimatePercent, 0.0f, 1.0f);
+	UltimateBar->SetPercent(Pct);
+
+	// Color: azul oscuro → cian brillante al llenarse; blanco pulsante cuando está lista
+	FLinearColor BarColor;
+	if (Pct >= 1.0f)
+	{
+		// Lista: cian brillante
+		BarColor = FLinearColor(0.0f, 1.0f, 1.0f, 1.0f);
+	}
+	else
+	{
+		// Llenándose: azul oscuro → cian
+		BarColor = FMath::Lerp(
+			FLinearColor(0.05f, 0.1f, 0.5f, 1.0f),
+			FLinearColor(0.0f,  0.8f, 1.0f, 1.0f),
+			Pct);
+	}
+	UltimateBar->SetFillColorAndOpacity(BarColor);
+}
+

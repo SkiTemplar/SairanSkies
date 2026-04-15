@@ -211,6 +211,7 @@ void ASairanCharacter::BeginPlay()
 			{
 				HUDWidget->AddToViewport();
 				UpdateHUD();
+				UpdateUltimateHUD();   // inicializa la barra de ultimate a 0
 			}
 		}
 	}
@@ -869,34 +870,54 @@ void ASairanCharacter::UpdateHUD()
 	}
 }
 
+void ASairanCharacter::UpdateUltimateHUD()
+{
+	if (HUDWidget && UltimateComponent)
+	{
+		HUDWidget->UpdateUltimate(UltimateComponent->GetXPPercent());
+	}
+}
+
 void ASairanCharacter::HandleDeath()
 {
-	// Disable input momentarily
+	// ── Colapso visual del cuerpo ──────────────────────────────
+	if (ProceduralLimbs)
+	{
+		ProceduralLimbs->EnterDeathPose();
+	}
+
+	// ── Bloquear input ─────────────────────────────────────────
 	if (APlayerController* PC = Cast<APlayerController>(Controller))
 	{
 		DisableInput(PC);
 	}
 
-	// Respawn after delay
+	// ── Respawn tras la espera ─────────────────────────────────
 	GetWorld()->GetTimerManager().SetTimer(RespawnTimerHandle, [this]()
 	{
-		// Restore full health
+		// Restaurar salud
 		CurrentHealth = MaxHealth;
 		UpdateHUD();
 
-		// Respawn at last checkpoint
+		// Salir de pose de muerte (reposicionar miembros)
+		if (ProceduralLimbs)
+		{
+			ProceduralLimbs->ExitDeathPose();
+		}
+
+		// Teleportar al checkpoint
 		if (CheckpointComponent)
 		{
 			CheckpointComponent->RespawnAtLastCheckpoint();
 		}
 
-		// Re-enable input
+		// Re-habilitar input
 		if (APlayerController* PC = Cast<APlayerController>(Controller))
 		{
 			EnableInput(PC);
 		}
 
-		UE_LOG(LogTemp, Log, TEXT("Player: Respawned with full health at checkpoint"));
+		UE_LOG(LogTemp, Log, TEXT("Player: Respawned at checkpoint"));
 	}, RespawnDelay, false);
 }
 

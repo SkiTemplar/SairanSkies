@@ -8,6 +8,7 @@
 
 class UBoxComponent;
 class AEnemyBase;
+class USoundBase;
 
 /**
  * Actor que define una zona de combate de oleadas.

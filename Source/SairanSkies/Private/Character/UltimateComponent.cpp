@@ -61,6 +61,12 @@ void UUltimateComponent::AddXP(float Amount)
 
 	UE_LOG(LogTemp, Log, TEXT("Ultimate: XP %.0f → %.0f / %.0f%s"),
 		Previous, CurrentXP, MaxXP, IsReady() ? TEXT(" [LISTA]") : TEXT(""));
+
+	// Actualizar barra HUD
+	if (ASairanCharacter* Char = Cast<ASairanCharacter>(GetOwner()))
+	{
+		Char->UpdateUltimateHUD();
+	}
 }
 
 void UUltimateComponent::TryActivate()
@@ -158,6 +164,9 @@ void UUltimateComponent::Deactivate()
 
 	if (DeactivateSound)
 		UGameplayStatics::PlaySoundAtLocation(GetWorld(), DeactivateSound, Character->GetActorLocation());
+
+	// Sincronizar la HUD a 0 tras el reset de XP
+	Character->UpdateUltimateHUD();
 
 	UE_LOG(LogTemp, Warning, TEXT("Ultimate: Láser apagado. XP reiniciada a 0."));
 }

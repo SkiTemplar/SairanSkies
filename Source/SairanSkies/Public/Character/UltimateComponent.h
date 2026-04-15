@@ -53,20 +53,20 @@ public:
 		meta=(ClampMin="1.0", ClampMax="30.0"))
 	float LaserDuration = 5.0f;
 
-	/** Intervalo entre ticks de daño */
+	/** Intervalo entre ticks de daño — 0.33 = 3 impactos/segundo */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ultimate",
 		meta=(ClampMin="0.05", ClampMax="1.0"))
-	float DamageInterval = 0.1f;
+	float DamageInterval = 0.33f;
 
-	/** Daño mínimo por tick */
+	/** Daño mínimo por tick (~3 ataques pesados/s) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ultimate",
 		meta=(ClampMin="0.0"))
-	float DamageMin = 8.0f;
+	float DamageMin = 35.0f;
 
 	/** Daño máximo por tick */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ultimate",
 		meta=(ClampMin="0.0"))
-	float DamageMax = 12.0f;
+	float DamageMax = 55.0f;
 
 	/** Alcance del láser en cm */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ultimate",

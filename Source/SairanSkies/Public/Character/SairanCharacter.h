@@ -84,6 +84,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "UI")
 	void UpdateHUD();
 
+	/** Update the HUD ultimate XP bar */
+	UFUNCTION(BlueprintCallable, Category = "UI")
+	void UpdateUltimateHUD();
+
 	// ========== COMPONENTS ==========
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera")
 	USpringArmComponent* CameraBoom;

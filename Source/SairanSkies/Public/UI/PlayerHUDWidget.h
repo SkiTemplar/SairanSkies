@@ -23,6 +23,13 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "HUD")
 	void UpdateHealth(float HealthPercent);
 
+	/**
+	 * Update the Ultimate XP bar.
+	 * @param UltimatePercent  0.0 = vacío, 1.0 = listo para activar.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "HUD")
+	void UpdateUltimate(float UltimatePercent);
+
 protected:
 	/** Bind to a ProgressBar named "HealthBar" in the Widget Blueprint */
 	UPROPERTY(meta = (BindWidgetOptional))
@@ -31,5 +38,13 @@ protected:
 	/** Optional text display for HP numbers */
 	UPROPERTY(meta = (BindWidgetOptional))
 	UTextBlock* HealthText;
+
+	/**
+	 * Barra de XP del ultimate.
+	 * Nombrar el widget "UltimateBar" en el Blueprint.
+	 * Llena de azul oscuro → cian brillante cuando está lista.
+	 */
+	UPROPERTY(meta = (BindWidgetOptional))
+	UProgressBar* UltimateBar;
 };
 
