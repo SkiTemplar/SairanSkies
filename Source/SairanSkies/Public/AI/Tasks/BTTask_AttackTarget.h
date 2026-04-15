@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "BehaviorTree/BTTaskNode.h"
+#include "Sound/SoundBase.h"
 #include "BTTask_AttackTarget.generated.h"
 
 class AEnemyBase;
@@ -17,6 +18,7 @@ UENUM()
 enum class EAttackPhase : uint8
 {
 	Approach,    // Acercándose a posición de ataque
+	Backstep,    // Paso atrás + sonido de aviso (telegrafía el golpe)
 	WindUp,      // Preparación antes del golpe
 	Strike,      // Ejecutando golpe (aplica daño + rotación debug)
 	Recovery,    // Recuperación post-golpe
@@ -50,6 +52,19 @@ public:
 
 protected:
 	// ── Timing ──
+
+	/** El enemigo retrocede este tiempo antes de atacar (telegrafía el golpe) */
+	UPROPERTY(EditAnywhere, Category = "Attack|Timing", meta = (ClampMin = "0.0"))
+	float BackstepDuration = 0.5f;
+
+	/** Distancia que el enemigo retrocede durante el Backstep */
+	UPROPERTY(EditAnywhere, Category = "Attack|Timing", meta = (ClampMin = "0.0"))
+	float BackstepDistance = 90.0f;
+
+	/** Sonido de aviso que se reproduce al iniciar el Backstep (nullptr = sin sonido) */
+	UPROPERTY(EditAnywhere, Category = "Attack|SFX")
+	USoundBase* WindUpWarningSound = nullptr;
+
 	UPROPERTY(EditAnywhere, Category = "Attack|Timing", meta = (ClampMin = "0.05"))
 	float WindUpDuration = 0.2f;
 

@@ -227,15 +227,9 @@ void UCombatComponent::ExecuteAttack(EAttackType AttackType)
 	// Broadcast event
 	OnAttackPerformed.Broadcast(AttackType);
 
-	// Increment combo for light attacks
-	if (AttackType == EAttackType::Light)
-	{
-		IncrementCombo();
-	}
-	else
-	{
-		ResetCombo();
-	}
+	// All attack types (Light, Heavy, Charged) advance the shared combo counter.
+	// This prevents spam by mixing attack types to dodge the MaxLightCombo limit.
+	IncrementCombo();
 
 	// Set timer to end attack
 	GetWorld()->GetTimerManager().SetTimer(AttackEndTimer, this, &UCombatComponent::EndAttack, AttackDuration, false);

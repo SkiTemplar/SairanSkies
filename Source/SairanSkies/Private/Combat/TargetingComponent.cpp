@@ -205,8 +205,10 @@ void UTargetingComponent::SnapToTarget(AActor* Target)
 	// Find the ground at the snap destination to avoid clipping through floor
 	// This is important when snapping from the air
 	FHitResult GroundHit;
-	FVector TraceStart = SnapDestination + FVector(0, 0, 200.0f); // Start above
-	FVector TraceEnd = SnapDestination - FVector(0, 0, 500.0f);   // Trace down
+	// Start at the player's current Z — prevents an overhanging platform from being
+	// detected as "ground" and teleporting the character on top of it.
+	FVector TraceStart = FVector(SnapDestination.X, SnapDestination.Y, OwnerLocation.Z + 10.0f);
+	FVector TraceEnd   = SnapDestination - FVector(0, 0, 500.0f); // Trace down
 	
 	FCollisionQueryParams QueryParams;
 	QueryParams.AddIgnoredActor(OwnerCharacter);

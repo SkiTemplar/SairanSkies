@@ -11,6 +11,7 @@
 // Forward declarations
 class UBehaviorTree;
 class APatrolPath;
+class AHealPickup;
 class UAnimMontage;
 class UNiagaraSystem;
 class USoundBase;
@@ -402,6 +403,30 @@ public:
 	/** Delay before the enemy is destroyed after death (seconds) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|Death")
 	float DespawnDelay = 3.0f;
+
+	/** Impulse magnitude applied to the ragdoll mesh on death */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|Death",
+		meta=(ClampMin="0.0", ClampMax="200000.0"))
+	float DeathRagdollImpulse = 40000.0f;
+
+	// ==================== HEAL DROPS ====================
+
+	/** Probability (0–1) that this enemy drops a heal pickup on death */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|Drops",
+		meta=(ClampMin="0.0", ClampMax="1.0"))
+	float HealDropChance = 0.35f;
+
+	/** Relative weights for Small / Medium / Full heal. Normalised automatically. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|Drops")
+	FVector HealDropWeights = FVector(0.6f, 0.3f, 0.1f); // Small 60%, Medium 30%, Full 10%
+
+	/** Blueprint class del heal pickup (asignar en el Blueprint del enemigo) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Enemy|Drops")
+	TSubclassOf<AHealPickup> HealPickupClass;
+
+	/** Intentar soltar un heal al morir */
+	UFUNCTION(BlueprintCallable, Category = "Enemy|Drops")
+	void TryDropHeal();
 
 	// ==================== STATIC ATTACKER TRACKING ====================
 protected:

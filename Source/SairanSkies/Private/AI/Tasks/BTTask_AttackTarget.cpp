@@ -9,6 +9,7 @@
 #include "AIController.h"
 #include "Kismet/GameplayStatics.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "Sound/SoundBase.h"
 
 UBTTask_AttackTarget::UBTTask_AttackTarget()
 {
@@ -205,11 +206,11 @@ EBTNodeResult::Type UBTTask_AttackTarget::ExecuteTask(UBehaviorTreeComponent& Ow
 	float DistToTarget = Enemy->GetDistanceToTarget();
 	if (DistToTarget <= Enemy->CombatConfig.MaxAttackPositionDist + 30.0f)
 	{
-		// Already in range — skip approach, start attacking
+		// Already in range — backstep telegraph, then attack
 		Enemy->Attack(); // Start cooldown
 		PickComboByDistance(Enemy);
 
-		Phase = EAttackPhase::WindUp;
+		Phase = EAttackPhase::Backstep;
 		PhaseTimer = 0.0f;
 		AIC->StopMovement();
 
@@ -279,8 +280,15 @@ void UBTTask_AttackTarget::TickTask(UBehaviorTreeComponent& OwnerComp, uint8* No
 			Enemy->Attack(); // Start cooldown
 			PickComboByDistance(Enemy);
 
-			Phase = EAttackPhase::WindUp;
+			// Backstep first — telegraphs the hit to the player
+			Phase = EAttackPhase::Backstep;
 			PhaseTimer = 0.0f;
+
+			// Play warning sound
+			if (WindUpWarningSound)
+			{
+				UGameplayStatics::PlaySoundAtLocation(GetWorld(), WindUpWarningSound, Enemy->GetActorLocation());
+			}
 
 			UE_LOG(LogTemp, Warning, TEXT("=== ATTACK START: %s → %s | combo[%d] %d hits | dist=%.0f ==="),
 				*Enemy->GetName(), *Target->GetName(), ChosenComboIndex, TotalHits, Dist);
@@ -300,6 +308,27 @@ void UBTTask_AttackTarget::TickTask(UBehaviorTreeComponent& OwnerComp, uint8* No
 			UE_LOG(LogTemp, Warning, TEXT("Attack: %s approach timeout (dist=%.0f)"), *Enemy->GetName(), Dist);
 			Cleanup(OwnerComp, Enemy);
 			FinishLatentTask(OwnerComp, EBTNodeResult::Failed);
+		}
+		break;
+	}
+
+	// ═══════════════════════════════════════════════════════════════════
+	// BACKSTEP — retroceso de telegrafía (0.5 s) + sonido de aviso
+	// ═══════════════════════════════════════════════════════════════════
+	case EAttackPhase::Backstep:
+	{
+		// Mover al enemigo hacia atrás (alejándose del jugador)
+		if (BackstepDistance > 0.0f && BackstepDuration > 0.0f)
+		{
+			FVector AwayDir = (Enemy->GetActorLocation() - Target->GetActorLocation()).GetSafeNormal2D();
+			float StepThisFrame = (BackstepDistance / BackstepDuration) * DeltaSeconds;
+			Enemy->SetActorLocation(Enemy->GetActorLocation() + AwayDir * StepThisFrame);
+		}
+
+		if (PhaseTimer >= BackstepDuration)
+		{
+			PhaseTimer = 0.0f;
+			Phase = EAttackPhase::WindUp;
 		}
 		break;
 	}

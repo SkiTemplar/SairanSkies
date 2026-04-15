@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(xargs ls:*)"
+      "Bash(xargs ls:*)",
+      "Bash(\"C:\\\\Program Files\\\\Epic Games\\\\UE_5.6\\\\Engine\\\\Build\\\\BatchFiles\\\\Build.bat\" SairanSkiesEditor Win64 Development \"C:\\\\utad\\\\curso3\\\\Proyectos3\\\\Proyectos\\\\SairanSkies\\\\SairanSkies.uproject\" -WaitMutex -NoHotReload)"
     ]
   }
 }

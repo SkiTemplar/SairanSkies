@@ -24,6 +24,7 @@ class UNiagaraSystem;
 class UWeaponLerpComponent;
 class UInteractionComponent;
 class UProceduralLimbsComponent;
+class UUltimateComponent;
 
 UENUM(BlueprintType)
 enum class ECharacterState : uint8
@@ -114,6 +115,10 @@ public:
 	/** Rayman-style procedural limbs: sphere body + spring-simulated hands and feet. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Visual")
 	UProceduralLimbsComponent* ProceduralLimbs;
+
+	/** Barra de XP ultimate + ataque láser de 5 segundos */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Abilities")
+	UUltimateComponent* UltimateComponent;
 
 
 	// ========== WEAPON ATTACH POINTS ==========
@@ -209,6 +214,10 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	UInputAction* InteractAction;
 
+	/** Botón para activar el ultimate (barra llena requerida) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	UInputAction* UltimateAction;
+
 	// ========== MOVEMENT SETTINGS ==========
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Movement")
 	float WalkSpeed = 400.0f;
@@ -292,6 +301,10 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Movement",
 		meta=(ClampMin="0.0", ClampMax="800.0"))
 	float PlayerHitKnockbackForce = 220.0f;
+
+	/** Sound played when the player is hit by an enemy */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|SFX")
+	USoundBase* PlayerHitSound = nullptr;
 
 	/** Sound played when switching weapon to hand */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Weapon|SFX")
@@ -396,6 +409,7 @@ protected:
 	void GrappleRelease(const FInputActionValue& Value);
 	void CloneActivate(const FInputActionValue& Value);
 	void Interact();
+	void UltimateActivate(const FInputActionValue& Value);
 
 private:
 	void UpdateCameraDistance(float DeltaTime);

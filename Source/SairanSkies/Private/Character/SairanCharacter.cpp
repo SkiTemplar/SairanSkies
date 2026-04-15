@@ -18,6 +18,7 @@
 #include "Weapons/WeaponLerpComponent.h"
 #include "Interaction/InteractionComponent.h"
 #include "Character/ProceduralLimbsComponent.h"
+#include "Character/UltimateComponent.h"
 #include "UI/PlayerHUDWidget.h"
 #include "Kismet/GameplayStatics.h"
 #include "NiagaraFunctionLibrary.h"
@@ -166,6 +167,9 @@ ASairanCharacter::ASairanCharacter()
 	// Procedural Limbs (Rayman-style body: sphere torso + spring hands/feet)
 	ProceduralLimbs = CreateDefaultSubobject<UProceduralLimbsComponent>(TEXT("ProceduralLimbs"));
 
+	// Ultimate laser attack
+	UltimateComponent = CreateDefaultSubobject<UUltimateComponent>(TEXT("UltimateComponent"));
+
 	// Initial state
 	TargetCameraDistance = DefaultCameraDistance;
 }
@@ -249,6 +253,12 @@ float ASairanCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const
 		{
 			LaunchCharacter(KnockDir * PlayerHitKnockbackForce, true, false);
 		}
+	}
+
+	// Play hit sound
+	if (PlayerHitSound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(GetWorld(), PlayerHitSound, GetActorLocation());
 	}
 
 	// Update HUD
@@ -364,6 +374,10 @@ void ASairanCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 
 		// Interact
 		EnhancedInputComponent->BindAction(InteractAction, ETriggerEvent::Started, this, &ASairanCharacter::Interact);
+
+		// Ultimate laser (barra llena → activa el láser de 5s)
+		if (UltimateAction)
+			EnhancedInputComponent->BindAction(UltimateAction, ETriggerEvent::Started, this, &ASairanCharacter::UltimateActivate);
 	}
 }
 
@@ -834,6 +848,14 @@ void ASairanCharacter::Interact()
 	if (InteractionComponent)
 	{
 		InteractionComponent->TryInteract();
+	}
+}
+
+void ASairanCharacter::UltimateActivate(const FInputActionValue& /*Value*/)
+{
+	if (UltimateComponent)
+	{
+		UltimateComponent->TryActivate();
 	}
 }
 

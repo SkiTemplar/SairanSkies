@@ -21,6 +21,9 @@
 #include "Components/WidgetComponent.h"
 #include "UI/EnemyHealthBarWidget.h"
 #include "AI/GroupCombatManager.h"
+#include "Pickups/HealPickup.h"
+#include "Character/SairanCharacter.h"
+#include "Character/UltimateComponent.h"
 
 // Blackboard Keys
 const FName AEnemyBase::BB_TargetActor = TEXT("TargetActor");
@@ -517,6 +520,15 @@ void AEnemyBase::Die(AController* InstigatorController)
 	PlayRandomSound(SoundConfig.DeathSounds);
 	OnEnemyDeath.Broadcast(InstigatorController);
 
+	// Dar XP de ultimate al jugador
+	if (ASairanCharacter* Player = Cast<ASairanCharacter>(UGameplayStatics::GetPlayerCharacter(GetWorld(), 0)))
+	{
+		if (Player->UltimateComponent)
+		{
+			Player->UltimateComponent->AddXP(Player->UltimateComponent->XPPerKill);
+		}
+	}
+
 	// Show death X marker on damage numbers
 	if (DamageNumberComponent)
 	{
@@ -529,17 +541,69 @@ void AEnemyBase::Die(AController* InstigatorController)
 		HealthBarWidgetComponent->SetVisibility(false);
 	}
 
+	// ── Ragdoll ──
+	if (USkeletalMeshComponent* SkelMesh = GetMesh())
+	{
+		SkelMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+		SkelMesh->SetCollisionProfileName(TEXT("Ragdoll"));
+		SkelMesh->SetAllBodiesSimulatePhysics(true);
+		SkelMesh->SetSimulatePhysics(true);
+
+		// Impulso hacia atrás para que no caiga en vertical sin vida
+		if (DeathRagdollImpulse > 0.0f)
+		{
+			FVector ImpulseDir = (-GetActorForwardVector() + FVector(0.f, 0.f, 0.3f)).GetSafeNormal();
+			SkelMesh->AddImpulse(ImpulseDir * DeathRagdollImpulse, NAME_None, /*bVelChange=*/true);
+		}
+	}
+
 	if (GetCharacterMovement())
 	{
 		GetCharacterMovement()->DisableMovement();
 	}
-	SetActorEnableCollision(false);
+	// Desactivar cápsula pero dejar físicas de la mesh activas
+	GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+	// Posible drop de curación
+	TryDropHeal();
 
 	// Despawn after delay
 	GetWorld()->GetTimerManager().SetTimer(DespawnTimerHandle, [this]()
 	{
 		Destroy();
 	}, DespawnDelay, false);
+}
+
+void AEnemyBase::TryDropHeal()
+{
+	if (!HealPickupClass) return;
+	if (FMath::FRand() > HealDropChance) return;
+
+	// Selección ponderada Small / Medium / Full
+	float W0 = FMath::Max(0.0f, HealDropWeights.X);
+	float W1 = FMath::Max(0.0f, HealDropWeights.Y);
+	float W2 = FMath::Max(0.0f, HealDropWeights.Z);
+	float Total = W0 + W1 + W2;
+	if (Total <= 0.0f) return;
+
+	float Roll = FMath::FRandRange(0.0f, Total);
+	EHealType Type = EHealType::Small;
+	if (Roll >= W0 + W1)       Type = EHealType::Full;
+	else if (Roll >= W0)       Type = EHealType::Medium;
+
+	FVector SpawnLoc = GetActorLocation() + FVector(0.f, 0.f, 20.f);
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
+
+	AHealPickup* Pickup = GetWorld()->SpawnActor<AHealPickup>(HealPickupClass, SpawnLoc, FRotator::ZeroRotator, Params);
+	if (Pickup)
+	{
+		Pickup->HealType = Type;
+		UE_LOG(LogTemp, Log, TEXT("EnemyBase: %s soltó curación %s"),
+			*GetName(),
+			Type == EHealType::Small  ? TEXT("Small")  :
+			Type == EHealType::Medium ? TEXT("Medium") : TEXT("Full"));
+	}
 }
 
 float AEnemyBase::GetDistanceToTarget() const
