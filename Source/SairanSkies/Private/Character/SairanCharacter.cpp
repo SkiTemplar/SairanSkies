@@ -262,6 +262,20 @@ float ASairanCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const
 		UGameplayStatics::PlaySoundAtLocation(GetWorld(), PlayerHitSound, GetActorLocation());
 	}
 
+	// Flash rojo brevemente en el mesh del jugador
+	if (ProceduralLimbs)
+	{
+		ProceduralLimbs->StartHitFlash();
+	}
+
+	// Hit stun: bloquear ataques durante HitStunDuration segundos
+	bHitStunActive = true;
+	GetWorld()->GetTimerManager().ClearTimer(HitStunTimerHandle);
+	GetWorld()->GetTimerManager().SetTimer(HitStunTimerHandle, [this]()
+	{
+		bHitStunActive = false;
+	}, HitStunDuration, false);
+
 	// Update HUD
 	UpdateHUD();
 
@@ -537,6 +551,9 @@ void ASairanCharacter::Dash(const FInputActionValue& Value)
 
 void ASairanCharacter::LightAttack(const FInputActionValue& Value)
 {
+	// Cannot attack during hit stun
+	if (bHitStunActive) return;
+
 	// Cannot attack while aiming or being pulled by grapple
 	if (GrappleComponent && (GrappleComponent->IsAiming() || GrappleComponent->IsGrappling()))
 	{
@@ -548,7 +565,7 @@ void ASairanCharacter::LightAttack(const FInputActionValue& Value)
 	{
 		return;
 	}
-	
+
 	if (CombatComponent && CanPerformAction() && bIsWeaponDrawn)
 	{
 		CombatComponent->LightAttack();
@@ -557,6 +574,9 @@ void ASairanCharacter::LightAttack(const FInputActionValue& Value)
 
 void ASairanCharacter::HeavyAttackStart(const FInputActionValue& Value)
 {
+	// Cannot attack during hit stun
+	if (bHitStunActive) return;
+
 	// Cannot attack while aiming or being pulled by grapple
 	if (GrappleComponent && (GrappleComponent->IsAiming() || GrappleComponent->IsGrappling()))
 	{
@@ -568,7 +588,7 @@ void ASairanCharacter::HeavyAttackStart(const FInputActionValue& Value)
 	{
 		return;
 	}
-	
+
 	if (CombatComponent && CanPerformAction() && bIsWeaponDrawn)
 	{
 		CombatComponent->StartHeavyAttack();

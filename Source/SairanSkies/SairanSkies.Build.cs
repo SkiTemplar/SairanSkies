@@ -8,10 +8,10 @@ public class SairanSkies : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 	
-		PublicDependencyModuleNames.AddRange(new string[] { 
-			"Core", 
-			"CoreUObject", 
-			"Engine", 
+		PublicDependencyModuleNames.AddRange(new string[] {
+			"Core",
+			"CoreUObject",
+			"Engine",
 			"InputCore",
 			"EnhancedInput",
 			"MotionWarping",
@@ -21,7 +21,8 @@ public class SairanSkies : ModuleRules
 			"NavigationSystem",
 			"UMG",
 			"Slate",
-			"SlateCore"
+			"SlateCore",
+			"CableComponent"
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[] {  });

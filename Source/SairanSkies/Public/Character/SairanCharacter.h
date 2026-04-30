@@ -310,6 +310,17 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|SFX")
 	USoundBase* PlayerHitSound = nullptr;
 
+	// ========== HIT STUN ==========
+
+	/** Tiempo en segundos que el jugador no puede atacar tras recibir daño */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat",
+		meta=(ClampMin="0.0", ClampMax="1.0"))
+	float HitStunDuration = 0.1f;
+
+	/** True mientras el jugador está en stun post-golpe (no puede atacar) */
+	UPROPERTY(BlueprintReadOnly, Category = "Combat")
+	bool bHitStunActive = false;
+
 	/** Sound played when switching weapon to hand */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Weapon|SFX")
 	USoundBase* DrawWeaponSound;
@@ -426,6 +437,7 @@ private:
 	float TargetCameraDistance;
 	FTimerHandle DashCooldownTimer;
 	FTimerHandle RespawnTimerHandle;
+	FTimerHandle HitStunTimerHandle;
 	bool bIsDashing = false;
 
 	// Footstep timer

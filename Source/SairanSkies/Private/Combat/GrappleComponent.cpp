@@ -15,6 +15,7 @@
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
 #include "Components/AudioComponent.h"
+#include "CableComponent.h"
 
 UGrappleComponent::UGrappleComponent()
 {
@@ -275,6 +276,9 @@ void UGrappleComponent::FireGrapple()
 	// Start particle trail from character
 	StartGrappleTrailParticles();
 
+	// Activar la cuerda visual entre la mano y el ancla
+	StartGrappleRope();
+
 	OnGrappleFired.Broadcast(GrappleTargetPoint);
 
 	if (bShowDebug)
@@ -445,6 +449,9 @@ void UGrappleComponent::UpdatePulling(float DeltaTime)
 	TargetRotation.Pitch = 0.0f;
 	TargetRotation.Roll = 0.0f;
 	OwnerCharacter->SetActorRotation(FMath::RInterpTo(OwnerCharacter->GetActorRotation(), TargetRotation, DeltaTime, 10.0f));
+
+	// Actualizar la posición de la cuerda visual cada tick
+	UpdateGrappleRope();
 
 	if (bShowDebug)
 	{
@@ -690,6 +697,9 @@ void UGrappleComponent::ResetGrapple()
 
 	// Stop particles (in case they were active)
 	StopGrappleTrailParticles();
+
+	// Destruir la cuerda visual
+	StopGrappleRope();
 
 	// Stop any lingering grapple audio
 	if (AimingAudioComponent)
@@ -945,6 +955,95 @@ void UGrappleComponent::UnlockCamera()
 		GEngine->AddOnScreenDebugMessage(-1, 2.0f, FColor::Orange, TEXT("Grapple: Camera unlocked"));
 	}
 }
+
+// ── Cuerda Visual (Cilindro dinámico) ────────────────────────────────────────
+
+void UGrappleComponent::StartGrappleRope()
+{
+	if (!OwnerCharacter) return;
+
+	StopGrappleRope();
+
+	// Cargar mesh de cilindro
+	UStaticMesh* CylinderMesh = LoadObject<UStaticMesh>(nullptr, 
+		TEXT("/Engine/BasicShapes/Cylinder"));
+	if (!CylinderMesh)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Grapple: Could not load cylinder mesh for rope"));
+		return;
+	}
+
+	// Crear el componente visual de cuerda (cilindro)
+	RopeVisualMesh = NewObject<UStaticMeshComponent>(OwnerCharacter, TEXT("RopeVisual"));
+	if (!RopeVisualMesh) return;
+
+	RopeVisualMesh->SetStaticMesh(CylinderMesh);
+	RopeVisualMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	RopeVisualMesh->SetCollisionResponseToAllChannels(ECR_Ignore);
+	RopeVisualMesh->CastShadow = true;
+	
+	// Material simple para la cuerda (gris oscuro)
+	UMaterial* RopeMaterial = LoadObject<UMaterial>(nullptr,
+		TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
+	if (RopeMaterial)
+	{
+		UMaterialInstanceDynamic* RopeMID = UMaterialInstanceDynamic::Create(RopeMaterial, RopeVisualMesh);
+		RopeMID->SetVectorParameterValue(FName("Color"), FLinearColor(0.2f, 0.2f, 0.2f, 1.0f));
+		RopeVisualMesh->SetMaterial(0, RopeMID);
+	}
+
+	// Registrar y adjuntar al personaje
+	RopeVisualMesh->RegisterComponent();
+	RopeVisualMesh->AttachToComponent(OwnerCharacter->GetRootComponent(),
+		FAttachmentTransformRules::KeepWorldTransform);
+	OwnerCharacter->AddInstanceComponent(RopeVisualMesh);
+
+	RopeVisualMesh->SetVisibility(true);
+
+	UE_LOG(LogTemp, Log, TEXT("Grapple: Rope visual created"));
+}
+
+void UGrappleComponent::UpdateGrappleRope()
+{
+	if (!RopeVisualMesh || !OwnerCharacter) return;
+
+	FVector RopeStart = OwnerCharacter->GrappleHandAttachPoint 
+		? OwnerCharacter->GrappleHandAttachPoint->GetComponentLocation()
+		: OwnerCharacter->GetActorLocation();
+	
+	FVector RopeEnd = GrappleTargetPoint;
+	
+	// Calcular la distancia y el punto medio
+	FVector RopeDirection = (RopeEnd - RopeStart);
+	float RopeLength = RopeDirection.Length();
+	
+	if (RopeLength < 1.0f) return; // Muy corta para renderizar
+
+	// Escalar el cilindro:
+	// UE5 BasicShapes Cylinder: altura 100 en Z, radio 50 en XY
+	float CylinderScaleZ = RopeLength / 100.0f; // altura
+	float CylinderScaleXY = RopeCableWidth / 100.0f; // radio grosor
+	
+	RopeVisualMesh->SetWorldScale3D(FVector(CylinderScaleXY, CylinderScaleXY, CylinderScaleZ));
+	
+	// Posición: punto medio entre mano y ancla
+	FVector RopeMidpoint = (RopeStart + RopeEnd) / 2.0f;
+	RopeVisualMesh->SetWorldLocation(RopeMidpoint);
+	
+	// Rotación: apuntar hacia el destino
+	RopeVisualMesh->SetWorldRotation(RopeDirection.ToOrientationRotator());
+}
+
+void UGrappleComponent::StopGrappleRope()
+{
+	if (RopeVisualMesh)
+	{
+		RopeVisualMesh->DestroyComponent();
+		RopeVisualMesh = nullptr;
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 void UGrappleComponent::UpdateVelocityDampening(float DeltaTime)
 {

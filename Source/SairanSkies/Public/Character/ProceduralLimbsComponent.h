@@ -16,6 +16,7 @@
 class ASairanCharacter;
 class UStaticMeshComponent;
 class UMaterialInterface;
+class UMaterialInstanceDynamic;
 class UPoseableMeshComponent;
 
 UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent))
@@ -288,6 +289,21 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Limbs|Death")
 	void ExitDeathPose();
 
+	// ========== HIT FLASH ==========
+
+	/** Color del flash cuando el jugador recibe daño */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Limbs|HitFlash")
+	FLinearColor HitFlashColor = FLinearColor(1.0f, 0.0f, 0.0f, 1.0f);
+
+	/** Duración del flash en segundos */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Limbs|HitFlash",
+		meta=(ClampMin="0.01", ClampMax="1.0"))
+	float HitFlashDuration = 0.1f;
+
+	/** Activa el flash de golpe (llamar desde SairanCharacter::TakeDamage). */
+	UFUNCTION(BlueprintCallable, Category = "Limbs|HitFlash")
+	void StartHitFlash();
+
 private:
 	UPROPERTY()
 	ASairanCharacter* OwnerCharacter = nullptr;
@@ -308,6 +324,15 @@ private:
 	bool  bDeathPose       = false;
 	float DeathPoseTimer   = 0.0f;
 	static constexpr float DeathCollapseDuration = 0.7f;
+
+	// Hit flash
+	void StopHitFlash();
+	FTimerHandle HitFlashTimerHandle;
+	UPROPERTY()
+	TArray<UMaterialInterface*> OriginalMaterials;
+	UPROPERTY()
+	UMaterialInstanceDynamic* FlashMaterialInstance = nullptr;
+	bool bMaterialsCached = false;
 
 	// ---- Factory helpers ----
 	UStaticMeshComponent* MakeSphereComp(const FString& Name, float WorldRadius,

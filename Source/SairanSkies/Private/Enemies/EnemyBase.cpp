@@ -483,7 +483,8 @@ void AEnemyBase::TakeDamageFromSource(float DamageAmount, AActor* DamageSource, 
 
 	PlayHitReaction();
 	PlayRandomSound(SoundConfig.PainSounds);
-	SpawnHitEffect(GetActorLocation());
+	// Centro del cuerpo del enemigo (mitad de la cápsula)
+	SpawnHitEffect(GetActorLocation() + FVector(0.0f, 0.0f, 40.0f));
 
 	if (!CurrentTarget && DamageSource)
 	{
@@ -1132,15 +1133,15 @@ void AEnemyBase::SpawnHitEffect(FVector Location)
 {
 	if (VFXConfig.HitEffect)
 	{
-		// Spawn attached to the enemy at their center so particles follow them during knockback
-		UNiagaraFunctionLibrary::SpawnSystemAttached(
+		// Spawn en el punto de impacto real (no en los pies)
+		UNiagaraFunctionLibrary::SpawnSystemAtLocation(
+			GetWorld(),
 			VFXConfig.HitEffect,
-			GetMesh(),  // Attach to mesh
-			NAME_None,  // No specific socket
-			FVector::ZeroVector,  // At mesh center (not hit point - looks better with knockback)
+			Location,
 			FRotator::ZeroRotator,
-			EAttachLocation::KeepRelativeOffset,
-			true  // Auto destroy
+			FVector(1.0f),
+			true,   // Auto-activate
+			true    // Auto-destroy
 		);
 	}
 }
@@ -1160,17 +1161,17 @@ void AEnemyBase::TakeDamageAtLocation(float DamageAmount, AActor* DamageSource, 
 	// Spawn hit effect attached to enemy at the hit location
 	SpawnHitEffect(HitWorldLocation);
 
-	// Spawn blood VFX from enemy center (not hit point - stays with enemy during knockback)
+	// Spawn blood VFX en el punto de impacto real
 	if (VFXConfig.BloodVFX)
 	{
-		UNiagaraFunctionLibrary::SpawnSystemAttached(
+		UNiagaraFunctionLibrary::SpawnSystemAtLocation(
+			GetWorld(),
 			VFXConfig.BloodVFX,
-			GetMesh(),
-			NAME_None,
-			FVector::ZeroVector,  // At mesh center
+			HitWorldLocation,
 			FRotator::ZeroRotator,
-			EAttachLocation::KeepRelativeOffset,
-			true
+			FVector(1.0f),
+			true,   // Auto-activate
+			true    // Auto-destroy
 		);
 	}
 

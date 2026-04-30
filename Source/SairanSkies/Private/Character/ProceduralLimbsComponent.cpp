@@ -13,6 +13,8 @@
 #include "Character/UltimateComponent.h"
 #include "Camera/CameraComponent.h"
 #include "DrawDebugHelpers.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "Materials/Material.h"
 
 // ── UE5 BasicShapes dimensions at scale 1.0 ─────────────────────────────────
 //   Sphere   : radius  50 (diameter 100)
@@ -652,4 +654,150 @@ FVector UProceduralLimbsComponent::SolveTwoBoneIK(
 	Perp.Normalize();
 
 	return Root + Upper * (CosA * DirAC + SinA * Perp);
+}
+
+// ============================================================
+//  Hit Flash (jugador se pone rojo al recibir daño)
+// ============================================================
+
+void UProceduralLimbsComponent::StartHitFlash()
+{
+	// Cachear materiales originales la primera vez de TODOS los meshes
+	if (!bMaterialsCached)
+	{
+		OriginalMaterials.Empty();
+		
+		// Si tenemos TashMesh, cachear de ahí
+		if (TashMesh && TashMesh->GetNumMaterials() > 0)
+		{
+			for (int32 i = 0; i < TashMesh->GetNumMaterials(); i++)
+			{
+				OriginalMaterials.Add(TashMesh->GetMaterial(i));
+			}
+			UE_LOG(LogTemp, Log, TEXT("ProceduralLimbs: Cached %d materials from TashMesh"), OriginalMaterials.Num());
+		}
+		// Si no, cachear de las primitivas
+		else if (BodySphere && BodySphere->GetNumMaterials() > 0)
+		{
+			for (int32 i = 0; i < BodySphere->GetNumMaterials(); i++)
+			{
+				OriginalMaterials.Add(BodySphere->GetMaterial(i));
+			}
+			UE_LOG(LogTemp, Log, TEXT("ProceduralLimbs: Cached %d materials from BodySphere"), OriginalMaterials.Num());
+		}
+		bMaterialsCached = true;
+	}
+
+	// Crear instancia de material de flash si no existe
+	if (!FlashMaterialInstance)
+	{
+		UMaterial* BaseMaterial = LoadObject<UMaterial>(
+			nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
+		if (!BaseMaterial)
+		{
+			// Fallback: intentar otro material básico
+			BaseMaterial = LoadObject<UMaterial>(nullptr, 
+				TEXT("/Engine/EngineMaterials/WorldGridMaterial"));
+		}
+		
+		if (BaseMaterial)
+		{
+			FlashMaterialInstance = UMaterialInstanceDynamic::Create(BaseMaterial, this);
+			if (FlashMaterialInstance)
+			{
+				FlashMaterialInstance->SetVectorParameterValue(FName("Color"), HitFlashColor);
+				UE_LOG(LogTemp, Log, TEXT("ProceduralLimbs: Created flash material instance"));
+			}
+		}
+		else
+		{
+			UE_LOG(LogTemp, Warning, TEXT("ProceduralLimbs: Could not load base material for hit flash"));
+		}
+	}
+
+	// Aplicar material de flash a todos los meshes
+	if (FlashMaterialInstance)
+	{
+		if (TashMesh)
+		{
+			for (int32 i = 0; i < TashMesh->GetNumMaterials(); i++)
+			{
+				TashMesh->SetMaterial(i, FlashMaterialInstance);
+			}
+			UE_LOG(LogTemp, Log, TEXT("ProceduralLimbs: Applied flash to %d TashMesh materials"), TashMesh->GetNumMaterials());
+		}
+		else
+		{
+			// Aplicar a todas las primitivas si no hay TashMesh
+			if (BodySphere) 
+			{
+				BodySphere->SetMaterial(0, FlashMaterialInstance);
+				UE_LOG(LogTemp, Log, TEXT("ProceduralLimbs: Applied flash to BodySphere"));
+			}
+			if (RightHand) RightHand->SetMaterial(0, FlashMaterialInstance);
+			if (LeftHand) LeftHand->SetMaterial(0, FlashMaterialInstance);
+			if (RightFoot) RightFoot->SetMaterial(0, FlashMaterialInstance);
+			if (LeftFoot) LeftFoot->SetMaterial(0, FlashMaterialInstance);
+		}
+	}
+
+	// Programar restauración de materiales
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(HitFlashTimerHandle);
+		World->GetTimerManager().SetTimer(
+			HitFlashTimerHandle, this,
+			&UProceduralLimbsComponent::StopHitFlash,
+			HitFlashDuration, false);
+		
+		UE_LOG(LogTemp, Log, TEXT("ProceduralLimbs: Hit flash timer set for %.2f seconds"), HitFlashDuration);
+	}
+}
+
+void UProceduralLimbsComponent::StopHitFlash()
+{
+	UE_LOG(LogTemp, Log, TEXT("ProceduralLimbs: StopHitFlash called. bMaterialsCached=%d, OriginalMaterials.Num()=%d"), 
+		bMaterialsCached, OriginalMaterials.Num());
+
+	if (!bMaterialsCached || OriginalMaterials.Num() == 0) 
+	{
+		UE_LOG(LogTemp, Warning, TEXT("ProceduralLimbs: No cached materials to restore!"));
+		return;
+	}
+
+	// Restaurar materiales en TashMesh
+	if (TashMesh)
+	{
+		for (int32 i = 0; i < OriginalMaterials.Num() && i < TashMesh->GetNumMaterials(); i++)
+		{
+			if (OriginalMaterials[i])
+			{
+				TashMesh->SetMaterial(i, OriginalMaterials[i]);
+				UE_LOG(LogTemp, Log, TEXT("ProceduralLimbs: Restored TashMesh material slot %d"), i);
+			}
+		}
+	}
+	else if (BodySphere)
+	{
+		// Restaurar en primitivas
+		if (BodySphere->GetNumMaterials() > 0 && OriginalMaterials.Num() > 0)
+		{
+			if (OriginalMaterials[0])
+			{
+				BodySphere->SetMaterial(0, OriginalMaterials[0]);
+				UE_LOG(LogTemp, Log, TEXT("ProceduralLimbs: Restored BodySphere material"));
+			}
+		}
+		// También restaurar en otros componentes
+		if (RightHand && OriginalMaterials.Num() > 0)
+			RightHand->SetMaterial(0, OriginalMaterials[0]);
+		if (LeftHand && OriginalMaterials.Num() > 0)
+			LeftHand->SetMaterial(0, OriginalMaterials[0]);
+		if (RightFoot && OriginalMaterials.Num() > 0)
+			RightFoot->SetMaterial(0, OriginalMaterials[0]);
+		if (LeftFoot && OriginalMaterials.Num() > 0)
+			LeftFoot->SetMaterial(0, OriginalMaterials[0]);
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("ProceduralLimbs: Hit flash ended - materials restored"));
 }

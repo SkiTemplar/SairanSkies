@@ -8,6 +8,7 @@
 
 class USoundBase;
 class UNiagaraSystem;
+class UNiagaraComponent;
 class ASairanCharacter;
 
 /**
@@ -93,6 +94,20 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Ultimate|VFX")
 	UNiagaraSystem* LaserImpactVFX = nullptr;
 
+	/** Niagara beam que va desde el personaje hasta el punto de impacto.
+	 *  Debe ser un sistema de tipo Ribbon/Beam con parámetros de usuario
+	 *  "BeamStart" y "BeamEnd" de tipo Vector. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Ultimate|VFX")
+	UNiagaraSystem* LaserBeamVFX = nullptr;
+
+	/** Nombre del parámetro de usuario Niagara para el origen del rayo */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Ultimate|VFX")
+	FName LaserBeamStartParam = FName("BeamStart");
+
+	/** Nombre del parámetro de usuario Niagara para el destino del rayo */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Ultimate|VFX")
+	FName LaserBeamEndParam = FName("BeamEnd");
+
 	// ── Estado (solo lectura) ────────────────────────────────────────────────
 
 	UPROPERTY(BlueprintReadOnly, Category = "Ultimate")
@@ -127,6 +142,11 @@ private:
 	float DamageTimer = 0.0f;
 	float StoredMaxWalkSpeed = 0.0f;
 
+	/** Componente Niagara activo durante el láser para el rayo continuo */
+	UPROPERTY()
+	class UNiagaraComponent* LaserBeamComponent = nullptr;
+
 	void FireLaserTick();
 	void Deactivate();
+	void UpdateLaserBeam(const FVector& Origin, const FVector& End);
 };

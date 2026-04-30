@@ -160,6 +160,22 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Grapple|Visuals")
 	class UNiagaraSystem* GrappleTrailParticles;
 
+	// ── Cuerda física (UCableComponent) ─────────────────────────────────────
+
+	/** Grosor visual de la cuerda en cm */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Grapple|Rope",
+		meta=(ClampMin="0.5", ClampMax="10.0"))
+	float RopeCableWidth = 1.5f;
+
+	/** Número de segmentos físicos de la cuerda (más = más detalle, más coste) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Grapple|Rope",
+		meta=(ClampMin="4", ClampMax="32"))
+	int32 RopeNumSegments = 12;
+
+	/** Escala de gravedad de la cuerda (0 = recta, 1 = física real, valores negativos = arco hacia arriba) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Grapple|Rope")
+	float RopeGravityScale = 1.0f;
+
 	/** Show debug visualization */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Grapple|Debug")
 	bool bShowDebug = false;
@@ -207,6 +223,10 @@ public:
 	/** Reference to the spawned grapple trail particle component */
 	UPROPERTY(BlueprintReadOnly, Category = "Grapple|Visuals")
 	class UNiagaraComponent* GrappleTrailComponent;
+
+	/** Componente de mesh estático para visualizar la cuerda (cilindro dinámico) */
+	UPROPERTY(BlueprintReadOnly, Category = "Grapple|Rope")
+	class UStaticMeshComponent* RopeVisualMesh = nullptr;
 
 	// ========== EVENTS ==========
 	
@@ -272,6 +292,11 @@ private:
 	// Particle effects management
 	void StartGrappleTrailParticles();
 	void StopGrappleTrailParticles();
+
+	// Rope VFX (cuerda visible entre mano y ancla)
+	void StartGrappleRope();
+	void UpdateGrappleRope();
+	void StopGrappleRope();
 
 	// Camera lock management
 	void LockCamera();
