@@ -13,6 +13,7 @@ class USceneComponent;
 class AGrappleHookActor;
 class UGrappleCrosshairWidget;
 class APlayerController;
+class UCableComponent;
 
 UENUM(BlueprintType)
 enum class EGrappleState : uint8
@@ -164,8 +165,8 @@ public:
 
 	/** Grosor visual de la cuerda en cm */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Grapple|Rope",
-		meta=(ClampMin="0.5", ClampMax="10.0"))
-	float RopeCableWidth = 1.5f;
+		meta=(ClampMin="0.5", ClampMax="20.0"))
+	float RopeCableWidth = 5.0f;
 
 	/** Número de segmentos físicos de la cuerda (más = más detalle, más coste) */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Grapple|Rope",

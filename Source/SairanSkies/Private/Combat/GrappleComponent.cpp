@@ -401,6 +401,9 @@ void UGrappleComponent::UpdatePulling(float DeltaTime)
 		// Stop particle trail
 		StopGrappleTrailParticles();
 
+		// Ocultar la cuerda al soltar el gancho
+		StopGrappleRope();
+
 		// Stop pull SFX, play release SFX
 		if (PullingAudioComponent)
 		{
@@ -1030,8 +1033,10 @@ void UGrappleComponent::UpdateGrappleRope()
 	FVector RopeMidpoint = (RopeStart + RopeEnd) / 2.0f;
 	RopeVisualMesh->SetWorldLocation(RopeMidpoint);
 	
-	// Rotación: apuntar hacia el destino
-	RopeVisualMesh->SetWorldRotation(RopeDirection.ToOrientationRotator());
+	// Rotación: el cilindro de UE5 tiene su eje de altura en Z.
+	// MakeFromZ alinea el eje Z local con la dirección del segmento → cilindro recto entre mano y ancla.
+	FRotator RopeRot = FRotationMatrix::MakeFromZ(RopeDirection.GetSafeNormal()).Rotator();
+	RopeVisualMesh->SetWorldRotation(RopeRot);
 }
 
 void UGrappleComponent::StopGrappleRope()

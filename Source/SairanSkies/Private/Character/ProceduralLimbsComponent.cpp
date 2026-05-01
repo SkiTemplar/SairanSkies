@@ -106,12 +106,13 @@ void UProceduralLimbsComponent::BeginPlay()
 			{
 				const FReferenceSkeleton& RefSkel = Asset->GetRefSkeleton();
 				UE_LOG(LogTemp, Warning,
-					TEXT("ProceduralLimbs: SKM_Tash_model tiene %d huesos:"), RefSkel.GetNum());
+					TEXT("========== ProceduralLimbs: SKM_Tash_model tiene %d huesos =========="), RefSkel.GetNum());
 				for (int32 i = 0; i < RefSkel.GetNum(); ++i)
 				{
-					UE_LOG(LogTemp, Log, TEXT("  Hueso[%d]: %s"), i,
+					UE_LOG(LogTemp, Warning, TEXT("  [%d] %s"), i,
 						*RefSkel.GetBoneName(i).ToString());
 				}
+				UE_LOG(LogTemp, Warning, TEXT("========== COPIA ESTOS NOMBRES EN LOS CAMPOS BoneName_* =========="));
 			}
 
 			UE_LOG(LogTemp, Log, TEXT("ProceduralLimbs: TashMesh creado con SKM_Tash_model"));
@@ -540,84 +541,27 @@ void UProceduralLimbsComponent::DriveSkeletalBones(float SpeedRatio)
 {
 	if (!TashMesh || !OwnerCharacter) return;
 
-	const FQuat CharRot = OwnerCharacter->GetActorQuat();
+	// Mapeo directo: cada hueso copia la posición world de su forma base.
+	// Centro  ← BodySphere   (BodyPos)
+	// Mano_der← RightHand    (RightHandPos)
+	// Mano_izq← LeftHand     (LeftHandPos)
+	// Pie_der ← RightFoot    (RightFootPos)
+	// Pie_izq ← LeftFoot     (LeftFootPos)
 
-	// ── Centro (cuerpo) ───────────────────────────────────────────────────────
-	TashMesh->SetBoneLocationByName(BoneName_Root, BodyPos, EBoneSpaces::WorldSpace);
+	TashMesh->SetBoneLocationByName(BoneName_Root,  BodyPos,      EBoneSpaces::WorldSpace);
 	TashMesh->SetBoneRotationByName(BoneName_Root,
-		OwnerCharacter->GetActorRotation(), EBoneSpaces::WorldSpace);
+		OwnerCharacter->GetActorRotation(),          EBoneSpaces::WorldSpace);
 
-	// ── Brazo derecho ─────────────────────────────────────────────────────────
-	{
-		const FVector Shoulder  = BodyPos + CharRot.RotateVector(RightShoulderOffset);
-		const FVector ElbowHint = CharRot.RotateVector(FVector(-0.25f, 1.0f, -0.15f)).GetSafeNormal();
-		const FVector Elbow     = SolveTwoBoneIK(Shoulder, RightHandPos,
-			UpperArmLength, LowerArmLength, ElbowHint);
+	TashMesh->SetBoneLocationByName(BoneName_HandR, RightHandPos, EBoneSpaces::WorldSpace);
+	TashMesh->SetBoneLocationByName(BoneName_HandL, LeftHandPos,  EBoneSpaces::WorldSpace);
 
-		TashMesh->SetBoneLocationByName(BoneName_ShoulderR, Shoulder,     EBoneSpaces::WorldSpace);
-		TashMesh->SetBoneLocationByName(BoneName_ElbowR,    Elbow,        EBoneSpaces::WorldSpace);
-		TashMesh->SetBoneLocationByName(BoneName_HandR,     RightHandPos, EBoneSpaces::WorldSpace);
+	TashMesh->SetBoneLocationByName(BoneName_FootR, RightFootPos, EBoneSpaces::WorldSpace);
+	TashMesh->SetBoneRotationByName(BoneName_FootR,
+		GetFootRotation(GaitTimer,      SpeedRatio), EBoneSpaces::WorldSpace);
 
-		if (!Shoulder.Equals(Elbow))
-			TashMesh->SetBoneRotationByName(BoneName_ShoulderR,
-				(Elbow - Shoulder).ToOrientationRotator(), EBoneSpaces::WorldSpace);
-		if (!Elbow.Equals(RightHandPos))
-			TashMesh->SetBoneRotationByName(BoneName_ElbowR,
-				(RightHandPos - Elbow).ToOrientationRotator(), EBoneSpaces::WorldSpace);
-	}
-
-	// ── Brazo izquierdo ───────────────────────────────────────────────────────
-	{
-		const FVector Shoulder  = BodyPos + CharRot.RotateVector(LeftShoulderOffset);
-		const FVector ElbowHint = CharRot.RotateVector(FVector(-0.25f, -1.0f, -0.15f)).GetSafeNormal();
-		const FVector Elbow     = SolveTwoBoneIK(Shoulder, LeftHandPos,
-			UpperArmLength, LowerArmLength, ElbowHint);
-
-		TashMesh->SetBoneLocationByName(BoneName_ShoulderL, Shoulder,    EBoneSpaces::WorldSpace);
-		TashMesh->SetBoneLocationByName(BoneName_ElbowL,    Elbow,       EBoneSpaces::WorldSpace);
-		TashMesh->SetBoneLocationByName(BoneName_HandL,     LeftHandPos, EBoneSpaces::WorldSpace);
-
-		if (!Shoulder.Equals(Elbow))
-			TashMesh->SetBoneRotationByName(BoneName_ShoulderL,
-				(Elbow - Shoulder).ToOrientationRotator(), EBoneSpaces::WorldSpace);
-		if (!Elbow.Equals(LeftHandPos))
-			TashMesh->SetBoneRotationByName(BoneName_ElbowL,
-				(LeftHandPos - Elbow).ToOrientationRotator(), EBoneSpaces::WorldSpace);
-	}
-
-	// ── Pierna derecha ────────────────────────────────────────────────────────
-	{
-		const FVector Hip      = BodyPos + CharRot.RotateVector(RightHipOffset);
-		const FVector KneeHint = CharRot.RotateVector(FVector(1.0f, 0.2f, 0.0f)).GetSafeNormal();
-		const FVector Knee     = SolveTwoBoneIK(Hip, RightFootPos,
-			UpperLegLength, LowerLegLength, KneeHint);
-
-		TashMesh->SetBoneLocationByName(BoneName_KneeR, Knee,         EBoneSpaces::WorldSpace);
-		TashMesh->SetBoneLocationByName(BoneName_FootR, RightFootPos, EBoneSpaces::WorldSpace);
-
-		if (!Knee.Equals(RightFootPos))
-			TashMesh->SetBoneRotationByName(BoneName_KneeR,
-				(RightFootPos - Knee).ToOrientationRotator(), EBoneSpaces::WorldSpace);
-		TashMesh->SetBoneRotationByName(BoneName_FootR,
-			GetFootRotation(GaitTimer, SpeedRatio), EBoneSpaces::WorldSpace);
-	}
-
-	// ── Pierna izquierda ──────────────────────────────────────────────────────
-	{
-		const FVector Hip      = BodyPos + CharRot.RotateVector(LeftHipOffset);
-		const FVector KneeHint = CharRot.RotateVector(FVector(1.0f, -0.2f, 0.0f)).GetSafeNormal();
-		const FVector Knee     = SolveTwoBoneIK(Hip, LeftFootPos,
-			UpperLegLength, LowerLegLength, KneeHint);
-
-		TashMesh->SetBoneLocationByName(BoneName_KneeL, Knee,        EBoneSpaces::WorldSpace);
-		TashMesh->SetBoneLocationByName(BoneName_FootL, LeftFootPos, EBoneSpaces::WorldSpace);
-
-		if (!Knee.Equals(LeftFootPos))
-			TashMesh->SetBoneRotationByName(BoneName_KneeL,
-				(LeftFootPos - Knee).ToOrientationRotator(), EBoneSpaces::WorldSpace);
-		TashMesh->SetBoneRotationByName(BoneName_FootL,
-			GetFootRotation(GaitTimer + PI, SpeedRatio), EBoneSpaces::WorldSpace);
-	}
+	TashMesh->SetBoneLocationByName(BoneName_FootL, LeftFootPos,  EBoneSpaces::WorldSpace);
+	TashMesh->SetBoneRotationByName(BoneName_FootL,
+		GetFootRotation(GaitTimer + PI, SpeedRatio), EBoneSpaces::WorldSpace);
 }
 
 // ============================================================
@@ -662,142 +606,75 @@ FVector UProceduralLimbsComponent::SolveTwoBoneIK(
 
 void UProceduralLimbsComponent::StartHitFlash()
 {
-	// Cachear materiales originales la primera vez de TODOS los meshes
+	// Crear instancia de material de flash rojo la primera vez
+	if (!FlashMaterialInstance)
+	{
+		UMaterial* Base = LoadObject<UMaterial>(
+			nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
+		if (!Base) return;
+		FlashMaterialInstance = UMaterialInstanceDynamic::Create(Base, this);
+		if (FlashMaterialInstance)
+			FlashMaterialInstance->SetVectorParameterValue(FName("Color"), HitFlashColor);
+	}
+	if (!FlashMaterialInstance) return;
+
+	// Cachear materiales originales la primera vez — uno por componente
 	if (!bMaterialsCached)
 	{
-		OriginalMaterials.Empty();
-		
-		// Si tenemos TashMesh, cachear de ahí
-		if (TashMesh && TashMesh->GetNumMaterials() > 0)
+		if (BodySphere) OrigBodyMat  = BodySphere->GetMaterial(0);
+		if (RightHand)  OrigHandRMat = RightHand->GetMaterial(0);
+		if (LeftHand)   OrigHandLMat = LeftHand->GetMaterial(0);
+		if (RightFoot)  OrigFootRMat = RightFoot->GetMaterial(0);
+		if (LeftFoot)   OrigFootLMat = LeftFoot->GetMaterial(0);
+		if (TashMesh)
 		{
+			OrigTashMats.Empty();
 			for (int32 i = 0; i < TashMesh->GetNumMaterials(); i++)
-			{
-				OriginalMaterials.Add(TashMesh->GetMaterial(i));
-			}
-			UE_LOG(LogTemp, Log, TEXT("ProceduralLimbs: Cached %d materials from TashMesh"), OriginalMaterials.Num());
-		}
-		// Si no, cachear de las primitivas
-		else if (BodySphere && BodySphere->GetNumMaterials() > 0)
-		{
-			for (int32 i = 0; i < BodySphere->GetNumMaterials(); i++)
-			{
-				OriginalMaterials.Add(BodySphere->GetMaterial(i));
-			}
-			UE_LOG(LogTemp, Log, TEXT("ProceduralLimbs: Cached %d materials from BodySphere"), OriginalMaterials.Num());
+				OrigTashMats.Add(TashMesh->GetMaterial(i));
 		}
 		bMaterialsCached = true;
 	}
 
-	// Crear instancia de material de flash si no existe
-	if (!FlashMaterialInstance)
+	// Aplicar flash a primitivas estáticas
+	if (BodySphere) BodySphere->SetMaterial(0, FlashMaterialInstance);
+	if (RightHand)  RightHand->SetMaterial(0, FlashMaterialInstance);
+	if (LeftHand)   LeftHand->SetMaterial(0, FlashMaterialInstance);
+	if (RightFoot)  RightFoot->SetMaterial(0, FlashMaterialInstance);
+	if (LeftFoot)   LeftFoot->SetMaterial(0, FlashMaterialInstance);
+
+	// Aplicar flash a TashMesh (todos los slots)
+	if (TashMesh)
 	{
-		UMaterial* BaseMaterial = LoadObject<UMaterial>(
-			nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
-		if (!BaseMaterial)
-		{
-			// Fallback: intentar otro material básico
-			BaseMaterial = LoadObject<UMaterial>(nullptr, 
-				TEXT("/Engine/EngineMaterials/WorldGridMaterial"));
-		}
-		
-		if (BaseMaterial)
-		{
-			FlashMaterialInstance = UMaterialInstanceDynamic::Create(BaseMaterial, this);
-			if (FlashMaterialInstance)
-			{
-				FlashMaterialInstance->SetVectorParameterValue(FName("Color"), HitFlashColor);
-				UE_LOG(LogTemp, Log, TEXT("ProceduralLimbs: Created flash material instance"));
-			}
-		}
-		else
-		{
-			UE_LOG(LogTemp, Warning, TEXT("ProceduralLimbs: Could not load base material for hit flash"));
-		}
+		for (int32 i = 0; i < TashMesh->GetNumMaterials(); i++)
+			TashMesh->SetMaterial(i, FlashMaterialInstance);
 	}
 
-	// Aplicar material de flash a todos los meshes
-	if (FlashMaterialInstance)
-	{
-		if (TashMesh)
-		{
-			for (int32 i = 0; i < TashMesh->GetNumMaterials(); i++)
-			{
-				TashMesh->SetMaterial(i, FlashMaterialInstance);
-			}
-			UE_LOG(LogTemp, Log, TEXT("ProceduralLimbs: Applied flash to %d TashMesh materials"), TashMesh->GetNumMaterials());
-		}
-		else
-		{
-			// Aplicar a todas las primitivas si no hay TashMesh
-			if (BodySphere) 
-			{
-				BodySphere->SetMaterial(0, FlashMaterialInstance);
-				UE_LOG(LogTemp, Log, TEXT("ProceduralLimbs: Applied flash to BodySphere"));
-			}
-			if (RightHand) RightHand->SetMaterial(0, FlashMaterialInstance);
-			if (LeftHand) LeftHand->SetMaterial(0, FlashMaterialInstance);
-			if (RightFoot) RightFoot->SetMaterial(0, FlashMaterialInstance);
-			if (LeftFoot) LeftFoot->SetMaterial(0, FlashMaterialInstance);
-		}
-	}
-
-	// Programar restauración de materiales
+	// Programar restauración
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().ClearTimer(HitFlashTimerHandle);
-		World->GetTimerManager().SetTimer(
-			HitFlashTimerHandle, this,
-			&UProceduralLimbsComponent::StopHitFlash,
-			HitFlashDuration, false);
-		
-		UE_LOG(LogTemp, Log, TEXT("ProceduralLimbs: Hit flash timer set for %.2f seconds"), HitFlashDuration);
+		World->GetTimerManager().SetTimer(HitFlashTimerHandle, this,
+			&UProceduralLimbsComponent::StopHitFlash, HitFlashDuration, false);
 	}
 }
 
 void UProceduralLimbsComponent::StopHitFlash()
 {
-	UE_LOG(LogTemp, Log, TEXT("ProceduralLimbs: StopHitFlash called. bMaterialsCached=%d, OriginalMaterials.Num()=%d"), 
-		bMaterialsCached, OriginalMaterials.Num());
+	if (!bMaterialsCached) return;
 
-	if (!bMaterialsCached || OriginalMaterials.Num() == 0) 
-	{
-		UE_LOG(LogTemp, Warning, TEXT("ProceduralLimbs: No cached materials to restore!"));
-		return;
-	}
+	// Restaurar primitivas estáticas
+	if (BodySphere && OrigBodyMat)  BodySphere->SetMaterial(0, OrigBodyMat);
+	if (RightHand  && OrigHandRMat) RightHand->SetMaterial(0, OrigHandRMat);
+	if (LeftHand   && OrigHandLMat) LeftHand->SetMaterial(0, OrigHandLMat);
+	if (RightFoot  && OrigFootRMat) RightFoot->SetMaterial(0, OrigFootRMat);
+	if (LeftFoot   && OrigFootLMat) LeftFoot->SetMaterial(0, OrigFootLMat);
 
-	// Restaurar materiales en TashMesh
+	// Restaurar TashMesh
 	if (TashMesh)
 	{
-		for (int32 i = 0; i < OriginalMaterials.Num() && i < TashMesh->GetNumMaterials(); i++)
+		for (int32 i = 0; i < OrigTashMats.Num() && i < TashMesh->GetNumMaterials(); i++)
 		{
-			if (OriginalMaterials[i])
-			{
-				TashMesh->SetMaterial(i, OriginalMaterials[i]);
-				UE_LOG(LogTemp, Log, TEXT("ProceduralLimbs: Restored TashMesh material slot %d"), i);
-			}
+			if (OrigTashMats[i]) TashMesh->SetMaterial(i, OrigTashMats[i]);
 		}
 	}
-	else if (BodySphere)
-	{
-		// Restaurar en primitivas
-		if (BodySphere->GetNumMaterials() > 0 && OriginalMaterials.Num() > 0)
-		{
-			if (OriginalMaterials[0])
-			{
-				BodySphere->SetMaterial(0, OriginalMaterials[0]);
-				UE_LOG(LogTemp, Log, TEXT("ProceduralLimbs: Restored BodySphere material"));
-			}
-		}
-		// También restaurar en otros componentes
-		if (RightHand && OriginalMaterials.Num() > 0)
-			RightHand->SetMaterial(0, OriginalMaterials[0]);
-		if (LeftHand && OriginalMaterials.Num() > 0)
-			LeftHand->SetMaterial(0, OriginalMaterials[0]);
-		if (RightFoot && OriginalMaterials.Num() > 0)
-			RightFoot->SetMaterial(0, OriginalMaterials[0]);
-		if (LeftFoot && OriginalMaterials.Num() > 0)
-			LeftFoot->SetMaterial(0, OriginalMaterials[0]);
-	}
-
-	UE_LOG(LogTemp, Log, TEXT("ProceduralLimbs: Hit flash ended - materials restored"));
 }
