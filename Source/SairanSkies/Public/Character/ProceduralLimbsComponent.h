@@ -6,6 +6,31 @@
 //   • Cones   → feet (tip pointing down, alternating gait driven by locomotion speed)
 //
 // No real skeletal animation. Movement is fast VInterpTo tracking + procedural gait oscillation.
+//
+// ════════════════════════════════════════════════════════════════════════════════════════════
+//  CONFIGURACIÓN REQUERIDA - STRUCTURE DE HUESOS
+// ════════════════════════════════════════════════════════════════════════════════════════════
+//
+// El esqueleto (SKM_Tash_model) debe tener 11 huesos EN ESTA ESTRUCTURA:
+//
+//   Root (Centro)
+//   ├── Hombro_der
+//   │   └── Codo_der
+//   │       └── Mano_der
+//   ├── Hombro_izq
+//   │   └── Codo_izq
+//   │       └── Mano_izq
+//   ├── Rodilla_der
+//   │   └── Pie_der
+//   └── Rodilla_izq
+//       └── Pie_izq
+//
+// IMPORTANTE: Los NOMBRES EXACTOS se configuran en Blueprint → Details → "Limbs|Skeletal|BoneNames"
+// Los nombres pueden ser diferentes (ej: "UpperArm_R"), pero deben coincidir exactamente con
+// el esqueleto real. En BeginPlay() se imprime en Output Log la lista completa de huesos.
+//
+// Lee: BONE_SETUP_GUIDE.md en la raíz del proyecto para instrucciones detalladas.
+// ════════════════════════════════════════════════════════════════════════════════════════════
 
 #pragma once
 
@@ -329,10 +354,15 @@ private:
 	void StopHitFlash();
 	FTimerHandle HitFlashTimerHandle;
 	UPROPERTY()
-	TArray<UMaterialInterface*> OriginalMaterials;
-	UPROPERTY()
 	UMaterialInstanceDynamic* FlashMaterialInstance = nullptr;
 	bool bMaterialsCached = false;
+	// Materiales originales por componente (slot 0 cada uno; TashMesh puede tener N)
+	UPROPERTY() UMaterialInterface* OrigBodyMat   = nullptr;
+	UPROPERTY() UMaterialInterface* OrigHandRMat  = nullptr;
+	UPROPERTY() UMaterialInterface* OrigHandLMat  = nullptr;
+	UPROPERTY() UMaterialInterface* OrigFootRMat  = nullptr;
+	UPROPERTY() UMaterialInterface* OrigFootLMat  = nullptr;
+	UPROPERTY() TArray<UMaterialInterface*> OrigTashMats;
 
 	// ---- Factory helpers ----
 	UStaticMeshComponent* MakeSphereComp(const FString& Name, float WorldRadius,
