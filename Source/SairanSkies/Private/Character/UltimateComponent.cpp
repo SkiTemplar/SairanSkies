@@ -148,17 +148,39 @@ void UUltimateComponent::FireLaserTick()
 
 	const FVector End = Origin + Forward * LaserRange;
 
-	FHitResult Hit;
 	FCollisionQueryParams Params;
 	Params.AddIgnoredActor(Character);
 	Params.bTraceComplex = false;
-	Params.bReturnPhysicalMaterial = true;
 
-	// Traza con ECC_Pawn para golpear enemigos (que son personajes)
-	const bool bHit = GetWorld()->LineTraceSingleByChannel(Hit, Origin, End, ECC_Pawn, Params);
+	// ── Traza doble para máxima fiabilidad ──────────────────────────────────
+	// ECC_Pawn como CANAL solo detecta lo que BLOQUEA dicho canal.
+	// La cápsula de los personajes tiene Pawn→Overlap, NO Block → nunca detecta.
+	// Solución: LineTraceSingleByObjectType con ECC_Pawn detecta todos los Pawns
+	// independientemente de su perfil de colisión.
 
-	UE_LOG(LogTemp, Warning, TEXT("Ultimate FireLaserTick: Trace from %.0f,%.0f,%.0f to %.0f,%.0f,%.0f | Hit=%d | Actor=%s"),
-		Origin.X, Origin.Y, Origin.Z, End.X, End.Y, End.Z, bHit, Hit.GetActor() ? *Hit.GetActor()->GetName() : TEXT("None"));
+	// 1) Encontrar Pawns (enemigos) por tipo de objeto
+	FCollisionObjectQueryParams PawnObjQuery;
+	PawnObjQuery.AddObjectTypesToQuery(ECC_Pawn);
+	FHitResult HitPawn;
+	const bool bHitPawn = GetWorld()->LineTraceSingleByObjectType(HitPawn, Origin, End, PawnObjQuery, Params);
+
+	// 2) Encontrar geometría visible (paredes, props) por canal
+	FHitResult HitVis;
+	const bool bHitVis = GetWorld()->LineTraceSingleByChannel(HitVis, Origin, End, ECC_Visibility, Params);
+
+	// 3) Usar el impacto más cercano al origen
+	FHitResult Hit;
+	bool bHit = false;
+	if (bHitPawn && bHitVis)
+	{
+		Hit  = (HitPawn.Distance <= HitVis.Distance) ? HitPawn : HitVis;
+		bHit = true;
+	}
+	else if (bHitPawn) { Hit = HitPawn; bHit = true; }
+	else if (bHitVis)  { Hit = HitVis;  bHit = true; }
+
+	UE_LOG(LogTemp, VeryVerbose, TEXT("Ultimate Laser: Pawn=%d Vis=%d -> bHit=%d Actor=%s"),
+		bHitPawn, bHitVis, bHit, Hit.GetActor() ? *Hit.GetActor()->GetName() : TEXT("None"));
 
 	// Actualizar rayo visual
 	UpdateLaserBeam(Origin, bHit ? Hit.ImpactPoint : End);
@@ -173,8 +195,6 @@ void UUltimateComponent::FireLaserTick()
 	if (bHit && Hit.GetActor())
 	{
 		const float Damage = FMath::RandRange(DamageMin, DamageMax);
-
-		UE_LOG(LogTemp, Warning, TEXT("Ultimate: HIT! Dealing %.1f damage to %s at impact point"), Damage, *Hit.GetActor()->GetName());
 
 		// Primero intentar llamar directamente a TakeDamageAtLocation en enemigos,
 		// que garantiza que el daño se aplica y los efectos VFX salen en el punto correcto
@@ -195,10 +215,6 @@ void UUltimateComponent::FireLaserTick()
 			UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), LaserImpactVFX,
 				Hit.ImpactPoint, FRotator::ZeroRotator, FVector(1.0f), true, true);
 		}
-	}
-	else
-	{
-		UE_LOG(LogTemp, Warning, TEXT("Ultimate: NO HIT - No actor detected in laser path"));
 	}
 }
 
