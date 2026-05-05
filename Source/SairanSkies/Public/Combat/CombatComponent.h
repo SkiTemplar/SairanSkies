@@ -20,6 +20,16 @@ enum class EAttackType : uint8
 	Charged
 };
 
+USTRUCT(BlueprintType)
+struct FComboTimeoutPattern
+{
+	GENERATED_BODY()
+
+	/** Attack sequence that triggers combo recovery when it matches the latest performed attacks. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combo")
+	TArray<EAttackType> Sequence;
+};
+
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnAttackPerformed, EAttackType, AttackType);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnParrySuccess);
 	DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnParryWindow);
@@ -158,6 +168,10 @@ public:
 	/** Recovery time when combo is exhausted (all hits used). Player cannot attack during this time. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|Combo")
 	float ComboRecoveryCooldown = 0.75f;
+
+	/** Serializable attack sequences that trigger the same recovery timeout as combo exhaustion. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|Combo")
+	TArray<FComboTimeoutPattern> ComboTimeoutPatterns;
 
 	// ========== ATTACK MONTAGES ==========
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|Animation")
@@ -323,6 +337,10 @@ private:
 	void EndParryWindow();
 	void ResetParryCooldown();
 	void ProcessBufferedInput();
+	void RegisterComboAttack(EAttackType AttackType);
+	bool DoesAttackHistoryMatchPattern(const FComboTimeoutPattern& Pattern) const;
+	bool ShouldTriggerComboTimeout() const;
+	void StartComboRecovery();
 	void PerformHitDetection();
 	float GetDamageForAttackType(EAttackType AttackType) const;
 	/** Apply damage variance: base +/- DamageVariance randomly */
@@ -369,6 +387,7 @@ private:
 	/** Called when combo recovery finishes */
 	void EndComboRecovery();
 
+	TArray<EAttackType> AttackHistory;
 	TSet<AActor*> HitActorsThisAttack;
 	bool bHitLandedThisAttack = false;
 };

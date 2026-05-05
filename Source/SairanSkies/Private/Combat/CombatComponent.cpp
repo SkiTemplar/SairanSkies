@@ -20,9 +20,28 @@
 #include "Enemies/EnemyBase.h"
 #include "Weapons/WeaponLerpComponent.h"
 
+#include <initializer_list>
+
 UCombatComponent::UCombatComponent()
 {
 	PrimaryComponentTick.bCanEverTick = true;
+
+	auto AddDefaultTimeoutPattern = [this](std::initializer_list<EAttackType> Sequence)
+	{
+		FComboTimeoutPattern Pattern;
+		for (EAttackType AttackType : Sequence)
+		{
+			Pattern.Sequence.Add(AttackType);
+		}
+		ComboTimeoutPatterns.Add(Pattern);
+	};
+
+	AddDefaultTimeoutPattern({ EAttackType::Light, EAttackType::Light, EAttackType::Light });
+	AddDefaultTimeoutPattern({ EAttackType::Light, EAttackType::Heavy, EAttackType::Light });
+	AddDefaultTimeoutPattern({ EAttackType::Light, EAttackType::Light, EAttackType::Heavy });
+	AddDefaultTimeoutPattern({ EAttackType::Light, EAttackType::Heavy, EAttackType::Heavy });
+	AddDefaultTimeoutPattern({ EAttackType::Heavy, EAttackType::Heavy });
+	AddDefaultTimeoutPattern({ EAttackType::Heavy, EAttackType::Light });
 }
 
 void UCombatComponent::BeginPlay()
@@ -144,6 +163,7 @@ void UCombatComponent::ReleaseHeavyAttack()
 void UCombatComponent::ExecuteAttack(EAttackType AttackType)
 {
 	if (!OwnerCharacter) return;
+	if (bComboExhausted) return;
 
 	bIsAttacking = true;
 	CurrentAttackType = AttackType;
@@ -266,6 +286,11 @@ void UCombatComponent::ProcessBufferedInput()
 		EAttackType BufferedType = BufferedAttackType;
 		BufferedAttackType = EAttackType::None;
 
+		if (bComboExhausted)
+		{
+			return;
+		}
+
 		// Execute buffered attack
 		if (BufferedType == EAttackType::Light)
 		{
@@ -324,26 +349,85 @@ void UCombatComponent::ResetParryCooldown()
 void UCombatComponent::ResetCombo()
 {
 	CurrentComboCount = 0;
+	AttackHistory.Empty();
 	GetWorld()->GetTimerManager().ClearTimer(ComboResetTimer);
 }
 
 void UCombatComponent::IncrementCombo()
 {
 	CurrentComboCount++;
+	RegisterComboAttack(CurrentAttackType);
 	
 	// Combo exhausted - player must wait before attacking again
-	if (CurrentComboCount >= MaxLightCombo)
+	if (CurrentComboCount >= MaxLightCombo || ShouldTriggerComboTimeout())
 	{
-		bComboExhausted = true;
-		GetWorld()->GetTimerManager().SetTimer(ComboRecoveryTimer, this, &UCombatComponent::EndComboRecovery, ComboRecoveryCooldown, false);
-		// Also reset the combo count after recovery
-		GetWorld()->GetTimerManager().SetTimer(ComboResetTimer, this, &UCombatComponent::ResetCombo, ComboRecoveryCooldown + 0.1f, false);
+		StartComboRecovery();
 	}
 	else
 	{
 		// Reset timer for combo continuation
 		GetWorld()->GetTimerManager().SetTimer(ComboResetTimer, this, &UCombatComponent::ResetCombo, ComboResetTime, false);
 	}
+}
+
+void UCombatComponent::RegisterComboAttack(EAttackType AttackType)
+{
+	if (AttackType == EAttackType::None) return;
+
+	AttackHistory.Add(AttackType);
+
+	int32 MaxPatternLength = 0;
+	for (const FComboTimeoutPattern& Pattern : ComboTimeoutPatterns)
+	{
+		MaxPatternLength = FMath::Max(MaxPatternLength, Pattern.Sequence.Num());
+	}
+	MaxPatternLength = FMath::Max(MaxPatternLength, MaxLightCombo);
+
+	while (MaxPatternLength > 0 && AttackHistory.Num() > MaxPatternLength)
+	{
+		AttackHistory.RemoveAt(0, 1, EAllowShrinking::No);
+	}
+}
+
+bool UCombatComponent::DoesAttackHistoryMatchPattern(const FComboTimeoutPattern& Pattern) const
+{
+	const int32 PatternLength = Pattern.Sequence.Num();
+	if (PatternLength == 0 || AttackHistory.Num() < PatternLength)
+	{
+		return false;
+	}
+
+	const int32 HistoryOffset = AttackHistory.Num() - PatternLength;
+	for (int32 Index = 0; Index < PatternLength; ++Index)
+	{
+		if (AttackHistory[HistoryOffset + Index] != Pattern.Sequence[Index])
+		{
+			return false;
+		}
+	}
+
+	return true;
+}
+
+bool UCombatComponent::ShouldTriggerComboTimeout() const
+{
+	for (const FComboTimeoutPattern& Pattern : ComboTimeoutPatterns)
+	{
+		if (DoesAttackHistoryMatchPattern(Pattern))
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
+void UCombatComponent::StartComboRecovery()
+{
+	bComboExhausted = true;
+	GetWorld()->GetTimerManager().SetTimer(ComboRecoveryTimer, this, &UCombatComponent::EndComboRecovery, ComboRecoveryCooldown, false);
+	// Also reset the combo count after recovery.
+	GetWorld()->GetTimerManager().SetTimer(ComboResetTimer, this, &UCombatComponent::ResetCombo, ComboRecoveryCooldown + 0.1f, false);
 }
 
 // ========== HIT DETECTION ==========
