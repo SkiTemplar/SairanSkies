@@ -115,12 +115,13 @@ void UUltimateComponent::TryActivate()
 		FHitResult Hit;
 		const bool bHit = TraceLaser(Origin, End, Hit);
 
+		// Spawnear en el origen del rayo con escala inicial de 1.0
 		LaserBeamComponent = UNiagaraFunctionLibrary::SpawnSystemAtLocation(
 			GetWorld(),
 			LaserBeamVFX,
 			Origin,
 			GetLaserBeamRotation(Origin, bHit ? Hit.ImpactPoint : End),
-			FVector(1.0f),
+			FVector(1.0f, 1.0f, 1.0f),  // ← Escala inicial uniforme, pero se va a cambiar en UpdateLaserBeam
 			false,
 			false
 		);
@@ -128,6 +129,7 @@ void UUltimateComponent::TryActivate()
 		if (LaserBeamComponent)
 		{
 			LaserBeamComponent->Activate(true);
+			// Esto calcula la escala correcta en Z basada en la distancia del rayo
 			UpdateLaserBeam(Origin, bHit ? Hit.ImpactPoint : End);
 		}
 	}
@@ -282,10 +284,22 @@ void UUltimateComponent::UpdateLaserBeam(const FVector& Origin, const FVector& E
 {
 	if (!LaserBeamComponent) return;
 
-	LaserBeamComponent->SetWorldLocation(Origin);
-	LaserBeamComponent->SetWorldRotation(GetLaserBeamRotation(Origin, End));
-	LaserBeamComponent->SetVectorParameter(LaserBeamStartParam, Origin);
-	LaserBeamComponent->SetVectorParameter(LaserBeamEndParam, End);
+	ASairanCharacter* Character = Cast<ASairanCharacter>(GetOwner());
+	if (!Character) return;
+
+	// ── Dirección hacia donde mira el personaje EN ESTE FRAME ──────────────
+	FVector Forward = Character->GetActorForwardVector();
+	if (Character->FollowCamera)
+	{
+		Forward = Character->FollowCamera->GetForwardVector();
+	}
+
+	// ── Posición: 200cm adelante en la dirección que mira AHORA ────────────
+	const FVector LaserPosition = Character->GetActorLocation() + Forward * 200.0f;
+
+	// ── Actualizar posición y rotación EN TIEMPO REAL ─────────────────────
+	LaserBeamComponent->SetWorldLocation(LaserPosition);
+	LaserBeamComponent->SetWorldRotation(Forward.Rotation());
 }
 
 FRotator UUltimateComponent::GetLaserBeamRotation(const FVector& Origin, const FVector& End) const
@@ -307,9 +321,20 @@ void UUltimateComponent::Deactivate()
 
 	if (LaserBeamComponent)
 	{
+		// Desactivar completamente y destruir el componente
 		LaserBeamComponent->Deactivate();
-		LaserBeamComponent->DestroyComponent();
-		LaserBeamComponent = nullptr;
+		// Pequeño delay antes de destruir para que se vea el apagado suave
+		if (UWorld* World = GetWorld())
+		{
+			World->GetTimerManager().SetTimerForNextTick([this]()
+			{
+				if (LaserBeamComponent)
+				{
+					LaserBeamComponent->DestroyComponent(true);
+					LaserBeamComponent = nullptr;
+				}
+			});
+		}
 	}
 
 	ASairanCharacter* Character = Cast<ASairanCharacter>(GetOwner());
