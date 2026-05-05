@@ -11,6 +11,19 @@ class UNiagaraSystem;
 class UNiagaraComponent;
 class ASairanCharacter;
 
+USTRUCT()
+struct FUltimateLaserPulse
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	UNiagaraComponent* Component = nullptr;
+
+	FVector PreviousLocation = FVector::ZeroVector;
+	FVector CurrentLocation = FVector::ZeroVector;
+	FVector TargetLocation = FVector::ZeroVector;
+};
+
 /**
  * Gestiona la barra de XP ultimate y el ataque láser.
  *
@@ -108,6 +121,20 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Ultimate|VFX")
 	FName LaserBeamEndParam = FName("BeamEnd");
 
+	/** Tiempo entre pulsos visuales. Valores bajos dan sensacion de rayo continuo. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ultimate|VFX",
+		meta=(ClampMin="0.005", ClampMax="0.2"))
+	float LaserPulseSpawnInterval = 0.025f;
+
+	/** Velocidad de los pulsos invisibles que arrastran el VFX del rayo. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ultimate|VFX",
+		meta=(ClampMin="1000.0", ClampMax="50000.0"))
+	float LaserPulseSpeed = 14000.0f;
+
+	/** Muestra la linea de debug del trace en editor. Desactivado para no tapar el VFX real. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ultimate|Debug")
+	bool bShowLaserDebug = false;
+
 	// ── Estado (solo lectura) ────────────────────────────────────────────────
 
 	UPROPERTY(BlueprintReadOnly, Category = "Ultimate")
@@ -140,14 +167,18 @@ public:
 private:
 	float LaserTimer  = 0.0f;
 	float DamageTimer = 0.0f;
+	float PulseSpawnTimer = 0.0f;
 	float StoredMaxWalkSpeed = 0.0f;
 
 	/** Componente Niagara activo durante el láser para el rayo continuo */
 	UPROPERTY()
-	class UNiagaraComponent* LaserBeamComponent = nullptr;
+	TArray<FUltimateLaserPulse> ActiveLaserPulses;
 
 	void FireLaserTick();
 	void Deactivate();
-	void UpdateLaserBeam(const FVector& Origin, const FVector& End);
+	void UpdateLaserBeam(UNiagaraComponent* BeamComponent, const FVector& Origin, const FVector& End);
 	bool TraceLaser(FVector& OutOrigin, FVector& OutEnd, FHitResult& OutHit) const;
+	void SpawnLaserPulse(const FVector& Origin, const FVector& Target);
+	void UpdateLaserPulses(float DeltaTime);
+	void ClearLaserPulses();
 };

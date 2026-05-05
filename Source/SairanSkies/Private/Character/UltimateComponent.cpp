@@ -51,7 +51,16 @@ void UUltimateComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 	FVector End;
 	FHitResult Hit;
 	const bool bHit = TraceLaser(Origin, End, Hit);
-	UpdateLaserBeam(Origin, bHit ? Hit.ImpactPoint : End);
+	const FVector Target = bHit ? Hit.ImpactPoint : End;
+
+	PulseSpawnTimer -= DeltaTime;
+	while (PulseSpawnTimer <= 0.0f)
+	{
+		SpawnLaserPulse(Origin, Target);
+		PulseSpawnTimer += FMath::Max(0.005f, LaserPulseSpawnInterval);
+	}
+
+	UpdateLaserPulses(DeltaTime);
 
 	if (DamageTimer <= 0.0f)
 	{
@@ -94,6 +103,8 @@ void UUltimateComponent::TryActivate()
 	bLaserActive    = true;
 	LaserTimer   = LaserDuration;
 	DamageTimer  = 0.0f;   // primer tick inmediato
+	PulseSpawnTimer = 0.0f;
+	ClearLaserPulses();
 
 	// Paralizar traslación, permitir rotación con la cámara
 	if (UCharacterMovementComponent* Movement = Character->GetCharacterMovement())
@@ -107,31 +118,6 @@ void UUltimateComponent::TryActivate()
 
 	if (ActivateSound)
 		UGameplayStatics::PlaySoundAtLocation(GetWorld(), ActivateSound, Character->GetActorLocation());
-
-	// Crear el componente de rayo continuo si hay VFX asignado
-	if (LaserBeamVFX)
-	{
-		FVector Origin;
-		FVector End;
-		FHitResult Hit;
-		const bool bHit = TraceLaser(Origin, End, Hit);
-
-		LaserBeamComponent = UNiagaraFunctionLibrary::SpawnSystemAtLocation(
-			GetWorld(),
-			LaserBeamVFX,
-			FVector::ZeroVector,
-			FRotator::ZeroRotator,
-			FVector(1.0f),
-			false, // No auto-destroy
-			false
-		);
-		if (LaserBeamComponent)
-		{
-			LaserBeamComponent->SetVectorParameter(LaserBeamStartParam, Origin);
-			LaserBeamComponent->SetVectorParameter(LaserBeamEndParam, bHit ? Hit.ImpactPoint : End);
-			LaserBeamComponent->Activate(true);
-		}
-	}
 
 	SetComponentTickEnabled(true);
 
@@ -192,14 +178,14 @@ void UUltimateComponent::FireLaserTick()
 	UE_LOG(LogTemp, VeryVerbose, TEXT("Ultimate Laser: Pawn=%d Vis=%d -> bHit=%d Actor=%s"),
 		bHitPawn, bHitVis, bHit, Hit.GetActor() ? *Hit.GetActor()->GetName() : TEXT("None"));
 
-	// Actualizar rayo visual
-	UpdateLaserBeam(Origin, bHit ? Hit.ImpactPoint : End);
-
 #if WITH_EDITOR
-	DrawDebugLine(GetWorld(), Origin, bHit ? Hit.ImpactPoint : End,
-		FColor::Cyan, false, DamageInterval * 1.5f, 0, 3.0f);
-	if (bHit)
-		DrawDebugSphere(GetWorld(), Hit.ImpactPoint, 20.0f, 8, FColor::Red, false, DamageInterval * 1.5f);
+	if (bShowLaserDebug)
+	{
+		DrawDebugLine(GetWorld(), Origin, bHit ? Hit.ImpactPoint : End,
+			FColor::Cyan, false, DamageInterval * 1.5f, 0, 3.0f);
+		if (bHit)
+			DrawDebugSphere(GetWorld(), Hit.ImpactPoint, 20.0f, 8, FColor::Red, false, DamageInterval * 1.5f);
+	}
 #endif
 
 	if (bHit && Hit.GetActor())
@@ -279,12 +265,88 @@ bool UUltimateComponent::TraceLaser(FVector& OutOrigin, FVector& OutEnd, FHitRes
 	return bHit;
 }
 
-void UUltimateComponent::UpdateLaserBeam(const FVector& Origin, const FVector& End)
+void UUltimateComponent::UpdateLaserBeam(UNiagaraComponent* BeamComponent, const FVector& Origin, const FVector& End)
 {
-	if (!LaserBeamComponent) return;
+	if (!BeamComponent) return;
 
-	LaserBeamComponent->SetVectorParameter(LaserBeamStartParam, Origin);
-	LaserBeamComponent->SetVectorParameter(LaserBeamEndParam, End);
+	BeamComponent->SetVectorParameter(LaserBeamStartParam, Origin);
+	BeamComponent->SetVectorParameter(LaserBeamEndParam, End);
+}
+
+void UUltimateComponent::SpawnLaserPulse(const FVector& Origin, const FVector& Target)
+{
+	if (!LaserBeamVFX || !GetWorld()) return;
+
+	FUltimateLaserPulse Pulse;
+	Pulse.PreviousLocation = Origin;
+	Pulse.CurrentLocation = Origin;
+	Pulse.TargetLocation = Target;
+
+	Pulse.Component = UNiagaraFunctionLibrary::SpawnSystemAtLocation(
+		GetWorld(),
+		LaserBeamVFX,
+		Origin,
+		(Target - Origin).Rotation(),
+		FVector(1.0f),
+		false,
+		false
+	);
+
+	if (!Pulse.Component) return;
+
+	UpdateLaserBeam(Pulse.Component, Origin, Origin);
+	Pulse.Component->Activate(true);
+	ActiveLaserPulses.Add(Pulse);
+}
+
+void UUltimateComponent::UpdateLaserPulses(float DeltaTime)
+{
+	for (int32 Index = ActiveLaserPulses.Num() - 1; Index >= 0; --Index)
+	{
+		FUltimateLaserPulse& Pulse = ActiveLaserPulses[Index];
+		if (!Pulse.Component)
+		{
+			ActiveLaserPulses.RemoveAtSwap(Index);
+			continue;
+		}
+
+		const FVector ToTarget = Pulse.TargetLocation - Pulse.CurrentLocation;
+		const float DistanceToTarget = ToTarget.Size();
+		if (DistanceToTarget <= KINDA_SMALL_NUMBER)
+		{
+			Pulse.Component->Deactivate();
+			Pulse.Component->DestroyComponent();
+			ActiveLaserPulses.RemoveAtSwap(Index);
+			continue;
+		}
+
+		const float Step = LaserPulseSpeed * DeltaTime;
+		Pulse.PreviousLocation = Pulse.CurrentLocation;
+		Pulse.CurrentLocation += ToTarget.GetSafeNormal() * FMath::Min(Step, DistanceToTarget);
+
+		UpdateLaserBeam(Pulse.Component, Pulse.PreviousLocation, Pulse.CurrentLocation);
+
+		if (Step >= DistanceToTarget)
+		{
+			Pulse.Component->Deactivate();
+			Pulse.Component->DestroyComponent();
+			ActiveLaserPulses.RemoveAtSwap(Index);
+		}
+	}
+}
+
+void UUltimateComponent::ClearLaserPulses()
+{
+	for (FUltimateLaserPulse& Pulse : ActiveLaserPulses)
+	{
+		if (Pulse.Component)
+		{
+			Pulse.Component->Deactivate();
+			Pulse.Component->DestroyComponent();
+		}
+	}
+
+	ActiveLaserPulses.Empty();
 }
 
 void UUltimateComponent::Deactivate()
@@ -293,13 +355,7 @@ void UUltimateComponent::Deactivate()
 	CurrentXP  = 0.0f;
 	SetComponentTickEnabled(false);
 
-	// Destruir el componente del rayo
-	if (LaserBeamComponent)
-	{
-		LaserBeamComponent->Deactivate();
-		LaserBeamComponent->DestroyComponent();
-		LaserBeamComponent = nullptr;
-	}
+	ClearLaserPulses();
 
 	ASairanCharacter* Character = Cast<ASairanCharacter>(GetOwner());
 	if (!Character) return;
