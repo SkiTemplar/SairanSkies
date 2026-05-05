@@ -119,7 +119,7 @@ void UUltimateComponent::TryActivate()
 			GetWorld(),
 			LaserBeamVFX,
 			Origin,
-			((bHit ? Hit.ImpactPoint : End) - Origin).Rotation(),
+			GetLaserBeamRotation(Origin, bHit ? Hit.ImpactPoint : End),
 			FVector(1.0f),
 			false,
 			false
@@ -283,9 +283,20 @@ void UUltimateComponent::UpdateLaserBeam(const FVector& Origin, const FVector& E
 	if (!LaserBeamComponent) return;
 
 	LaserBeamComponent->SetWorldLocation(Origin);
-	LaserBeamComponent->SetWorldRotation((End - Origin).Rotation());
+	LaserBeamComponent->SetWorldRotation(GetLaserBeamRotation(Origin, End));
 	LaserBeamComponent->SetVectorParameter(LaserBeamStartParam, Origin);
 	LaserBeamComponent->SetVectorParameter(LaserBeamEndParam, End);
+}
+
+FRotator UUltimateComponent::GetLaserBeamRotation(const FVector& Origin, const FVector& End) const
+{
+	const FVector Direction = (End - Origin).GetSafeNormal();
+	if (Direction.IsNearlyZero())
+	{
+		return LaserBeamRotationOffset;
+	}
+
+	return Direction.Rotation() + LaserBeamRotationOffset;
 }
 
 void UUltimateComponent::Deactivate()

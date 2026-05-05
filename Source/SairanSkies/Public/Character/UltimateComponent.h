@@ -108,6 +108,10 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Ultimate|VFX")
 	FName LaserBeamEndParam = FName("BeamEnd");
 
+	/** Offset local del Niagara para alinear el eje que usa el asset con la direccion del rayo. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ultimate|VFX")
+	FRotator LaserBeamRotationOffset = FRotator(0.0f, -90.0f, 0.0f);
+
 	/** Muestra la linea de debug del trace en editor. Desactivado para no tapar el VFX real. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ultimate|Debug")
 	bool bShowLaserDebug = false;
@@ -153,5 +157,6 @@ private:
 	void FireLaserTick();
 	void Deactivate();
 	void UpdateLaserBeam(const FVector& Origin, const FVector& End);
+	FRotator GetLaserBeamRotation(const FVector& Origin, const FVector& End) const;
 	bool TraceLaser(FVector& OutOrigin, FVector& OutEnd, FHitResult& OutHit) const;
 };
