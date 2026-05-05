@@ -149,4 +149,5 @@ private:
 	void FireLaserTick();
 	void Deactivate();
 	void UpdateLaserBeam(const FVector& Origin, const FVector& End);
+	bool TraceLaser(FVector& OutOrigin, FVector& OutEnd, FHitResult& OutHit) const;
 };

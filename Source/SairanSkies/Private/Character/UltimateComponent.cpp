@@ -47,6 +47,12 @@ void UUltimateComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 	LaserTimer  -= DeltaTime;
 	DamageTimer -= DeltaTime;
 
+	FVector Origin;
+	FVector End;
+	FHitResult Hit;
+	const bool bHit = TraceLaser(Origin, End, Hit);
+	UpdateLaserBeam(Origin, bHit ? Hit.ImpactPoint : End);
+
 	if (DamageTimer <= 0.0f)
 	{
 		DamageTimer = DamageInterval;
@@ -105,20 +111,24 @@ void UUltimateComponent::TryActivate()
 	// Crear el componente de rayo continuo si hay VFX asignado
 	if (LaserBeamVFX)
 	{
-		const FVector Origin = Character->GetActorLocation();
-		LaserBeamComponent = UNiagaraFunctionLibrary::SpawnSystemAttached(
+		FVector Origin;
+		FVector End;
+		FHitResult Hit;
+		const bool bHit = TraceLaser(Origin, End, Hit);
+
+		LaserBeamComponent = UNiagaraFunctionLibrary::SpawnSystemAtLocation(
+			GetWorld(),
 			LaserBeamVFX,
-			Character->GetRootComponent(),
-			NAME_None,
 			FVector::ZeroVector,
 			FRotator::ZeroRotator,
-			EAttachLocation::KeepRelativeOffset,
-			false  // No auto-destroy
+			FVector(1.0f),
+			false, // No auto-destroy
+			false
 		);
 		if (LaserBeamComponent)
 		{
 			LaserBeamComponent->SetVectorParameter(LaserBeamStartParam, Origin);
-			LaserBeamComponent->SetVectorParameter(LaserBeamEndParam, Origin + Character->GetActorForwardVector() * LaserRange);
+			LaserBeamComponent->SetVectorParameter(LaserBeamEndParam, bHit ? Hit.ImpactPoint : End);
 			LaserBeamComponent->Activate(true);
 		}
 	}
@@ -216,6 +226,57 @@ void UUltimateComponent::FireLaserTick()
 				Hit.ImpactPoint, FRotator::ZeroRotator, FVector(1.0f), true, true);
 		}
 	}
+}
+
+bool UUltimateComponent::TraceLaser(FVector& OutOrigin, FVector& OutEnd, FHitResult& OutHit) const
+{
+	ASairanCharacter* Character = Cast<ASairanCharacter>(GetOwner());
+	if (!Character || !GetWorld()) return false;
+
+	OutOrigin = Character->GetActorLocation() + FVector(0.0f, 0.0f, 50.0f);
+
+	FVector Forward = Character->GetActorForwardVector();
+	if (Character->FollowCamera)
+	{
+		Forward = Character->FollowCamera->GetForwardVector();
+	}
+
+	OutEnd = OutOrigin + Forward * LaserRange;
+
+	FCollisionQueryParams Params;
+	Params.AddIgnoredActor(Character);
+	Params.bTraceComplex = false;
+
+	FCollisionObjectQueryParams PawnObjQuery;
+	PawnObjQuery.AddObjectTypesToQuery(ECC_Pawn);
+
+	FHitResult HitPawn;
+	const bool bHitPawn = GetWorld()->LineTraceSingleByObjectType(HitPawn, OutOrigin, OutEnd, PawnObjQuery, Params);
+
+	FHitResult HitVis;
+	const bool bHitVis = GetWorld()->LineTraceSingleByChannel(HitVis, OutOrigin, OutEnd, ECC_Visibility, Params);
+
+	bool bHit = false;
+	if (bHitPawn && bHitVis)
+	{
+		OutHit = (HitPawn.Distance <= HitVis.Distance) ? HitPawn : HitVis;
+		bHit = true;
+	}
+	else if (bHitPawn)
+	{
+		OutHit = HitPawn;
+		bHit = true;
+	}
+	else if (bHitVis)
+	{
+		OutHit = HitVis;
+		bHit = true;
+	}
+
+	UE_LOG(LogTemp, VeryVerbose, TEXT("Ultimate Laser: Pawn=%d Vis=%d -> bHit=%d Actor=%s"),
+		bHitPawn, bHitVis, bHit, OutHit.GetActor() ? *OutHit.GetActor()->GetName() : TEXT("None"));
+
+	return bHit;
 }
 
 void UUltimateComponent::UpdateLaserBeam(const FVector& Origin, const FVector& End)
