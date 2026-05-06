@@ -222,6 +222,14 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	UInputAction* UltimateAction;
 
+	/** Left stick click (L3) for ultimate combo */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	UInputAction* LeftStickClickAction;
+
+	/** Right stick click (R3) for ultimate combo */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	UInputAction* RightStickClickAction;
+
 	// ========== MOVEMENT SETTINGS ==========
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Movement")
 	float WalkSpeed = 400.0f;
@@ -262,6 +270,10 @@ public:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Camera")
 	float CameraZoomSpeed = 5.0f;
+
+	/** Camera sensitivity multiplier for look input */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Camera")
+	float CameraSensitivity = 1.0f;
 
 	// ========== MOVEMENT SFX ==========
 
@@ -425,6 +437,10 @@ protected:
 	void CloneActivate(const FInputActionValue& Value);
 	void Interact();
 	void UltimateActivate(const FInputActionValue& Value);
+	void LeftStickClickStart(const FInputActionValue& Value);
+	void LeftStickClickEnd(const FInputActionValue& Value);
+	void RightStickClickStart(const FInputActionValue& Value);
+	void RightStickClickEnd(const FInputActionValue& Value);
 
 private:
 	void UpdateCameraDistance(float DeltaTime);
@@ -445,4 +461,10 @@ private:
 
 	// Fall tracking for landing SFX
 	float LastGroundedZ = 0.0f;
+
+	// Ultimate combo (L3 + R3)
+	bool bL3Pressed = false;
+	bool bR3Pressed = false;
+	FTimerHandle UltimateComboTimer;
+	void CheckUltimateCombo();
 };

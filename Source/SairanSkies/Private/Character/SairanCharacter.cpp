@@ -393,6 +393,17 @@ void ASairanCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 		// Ultimate laser (barra llena → activa el láser de 5s)
 		if (UltimateAction)
 			EnhancedInputComponent->BindAction(UltimateAction, ETriggerEvent::Started, this, &ASairanCharacter::UltimateActivate);
+
+		// L3 and R3 for ultimate combo
+		if (LeftStickClickAction)
+			EnhancedInputComponent->BindAction(LeftStickClickAction, ETriggerEvent::Started, this, &ASairanCharacter::LeftStickClickStart);
+		if (LeftStickClickAction)
+			EnhancedInputComponent->BindAction(LeftStickClickAction, ETriggerEvent::Completed, this, &ASairanCharacter::LeftStickClickEnd);
+
+		if (RightStickClickAction)
+			EnhancedInputComponent->BindAction(RightStickClickAction, ETriggerEvent::Started, this, &ASairanCharacter::RightStickClickStart);
+		if (RightStickClickAction)
+			EnhancedInputComponent->BindAction(RightStickClickAction, ETriggerEvent::Completed, this, &ASairanCharacter::RightStickClickEnd);
 	}
 }
 
@@ -471,8 +482,8 @@ void ASairanCharacter::Look(const FInputActionValue& Value)
 
 	if (Controller != nullptr)
 	{
-		AddControllerYawInput(LookAxisVector.X);
-		AddControllerPitchInput(LookAxisVector.Y);
+		AddControllerYawInput(LookAxisVector.X * CameraSensitivity);
+		AddControllerPitchInput(LookAxisVector.Y * CameraSensitivity);
 	}
 }
 
@@ -941,8 +952,36 @@ void ASairanCharacter::HandleDeath()
 	}, RespawnDelay, false);
 }
 
+// ========== ULTIMATE COMBO HANDLERS ==========
 
+void ASairanCharacter::LeftStickClickStart(const FInputActionValue& Value)
+{
+	bL3Pressed = true;
+	CheckUltimateCombo();
+}
 
+void ASairanCharacter::LeftStickClickEnd(const FInputActionValue& Value)
+{
+	bL3Pressed = false;
+}
 
+void ASairanCharacter::RightStickClickStart(const FInputActionValue& Value)
+{
+	bR3Pressed = true;
+	CheckUltimateCombo();
+}
 
+void ASairanCharacter::RightStickClickEnd(const FInputActionValue& Value)
+{
+	bR3Pressed = false;
+}
 
+void ASairanCharacter::CheckUltimateCombo()
+{
+	if (bL3Pressed && bR3Pressed && !GetWorld()->GetTimerManager().IsTimerActive(UltimateComboTimer))
+	{
+		// Prevent spam - cooldown after activation
+		GetWorld()->GetTimerManager().SetTimer(UltimateComboTimer, 0.5f, false);
+		UltimateActivate(FInputActionValue());
+	}
+}
